@@ -26,7 +26,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </section>
     <section class="import-panel" id="drop-zone" data-i18n-label="importRegion">
       <button class="upload-target" id="choose"><span class="upload-icon">${icon('upload')}</span><span><strong><span data-i18n="dropMusic"></span><span class="choose-hint" data-i18n="chooseHint"></span></strong><small data-i18n="formats"></small></span></button>
-      <div class="demo-wrap"><span data-i18n="demoPrompt"></span><button class="text-button" id="demo"><span data-i18n="demo"></span><span class="demo-arrow" aria-hidden="true">↗</span></button></div>
+      <div class="demo-wrap"><label for="demo-song" data-i18n="demoPrompt"></label><div class="demo-controls"><select id="demo-song"><option value="demo.mp3" data-i18n="demoRain"></option><option value="demos/moonlight.mp3" data-i18n="demoMoonlight"></option><option value="demos/fur-elise.mp3" data-i18n="demoFurElise"></option></select><button class="text-button" id="demo"><span data-i18n="demo"></span><span class="demo-arrow" aria-hidden="true">↗</span></button></div><a class="text-button demo-listen" href="https://open.spotify.com/track/2sxnTmHJTODfpx6rghgyFg" target="_blank" rel="noopener noreferrer"><span data-i18n="listenStarrySky"></span> <span aria-hidden="true">↗</span></a></div>
       <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" hidden>
     </section>
     <div class="transcription-options"><label for="transcription-mode" data-i18n="audioType"></label><select id="transcription-mode"><option value="song" data-i18n="songMode"></option><option value="instrument" data-i18n="instrumentMode"></option></select><span id="model-status" data-i18n="modelConnecting"></span></div>
@@ -122,6 +122,7 @@ async function pressKey(pitch: number) {
 }
 function releaseKey(pitch: number) { held.get(pitch)?.stop?.(); held.delete(pitch); dirty = true; }
 function updateControls() {
+  el<HTMLButtonElement>('demo').disabled = busy;
   el<HTMLButtonElement>('play').disabled = busy || !duration || (mode === 'piano' && !notes.length);
   el('play').innerHTML = icon(audio.playing || starting ? 'pause' : 'play');
   setLabel(el('play'), audio.playing || starting ? 'pause' : 'play');
@@ -173,7 +174,7 @@ function finish(result: Note[], song: boolean) {
   changeMode(notes.length ? 'piano' : 'original');
   updateControls();
 }
-async function importAudio(file: File) {
+async function importAudio(file: File, demoTitle?: MessageKey) {
   if (!file.size) { message('emptyFile', true); return; }
   const song = el<HTMLSelectElement>('transcription-mode').value === 'song';
   if (song && !songModelReady) { message('songUnavailable', true); return; }
@@ -199,7 +200,8 @@ async function importAudio(file: File) {
     position = 0;
     notes = [];
     songName = file.name.replace(/\.[^.]+$/, '');
-    setRawText(el('song-name'), songName);
+    if (demoTitle) setText(el('song-name'), demoTitle);
+    else setRawText(el('song-name'), songName);
     setText(el('note-count'), 'recognizing', { duration: formatTime(duration) });
     el('duration').textContent = formatTime(duration);
     el<HTMLInputElement>('seek').max = String(duration);
@@ -269,12 +271,31 @@ function changeMode(next: typeof mode) {
 el('choose').onclick = () => el<HTMLInputElement>('file').click();
 el<HTMLInputElement>('file').onchange = event => { const input = event.target as HTMLInputElement; if (input.files?.[0]) void importAudio(input.files[0]); input.value = ''; };
 el('demo').onclick = async () => {
+  const option = el<HTMLSelectElement>('demo-song').selectedOptions[0];
+  const title = option.dataset.i18n as MessageKey;
+  cancel();
+  pause();
+  const currentJob = job;
+  request = new AbortController();
+  busy = true;
+  el('processing').hidden = false;
+  setText(el('process-label'), 'loadingDemo');
+  el<HTMLProgressElement>('progress').value = 0;
+  el('percent').textContent = '0%';
+  setRawText(el('message'), '');
+  updateControls();
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
-  const button = el<HTMLButtonElement>('demo');
-  button.disabled = true;
-  try { const response = await fetch(`${import.meta.env.BASE_URL}demo.mp3`); if (!response.ok) throw new Error(); await importAudio(new File([await response.blob()], 'After the Rain.mp3', { type: 'audio/mpeg' })); }
-  catch { message('demoFailed', true); }
-  finally { button.disabled = false; }
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}${option.value}`, { signal: request.signal });
+    if (!response.ok) throw new Error();
+    const blob = await response.blob();
+    if (currentJob !== job) return;
+    if (!blob.size) throw new Error();
+    el<HTMLSelectElement>('transcription-mode').value = 'instrument';
+    await importAudio(new File([blob], `${option.textContent}.mp3`, { type: 'audio/mpeg' }), title);
+  } catch {
+    if (currentJob === job) { cancel(); message('demoFailed', true); }
+  }
 };
 el('cancel').onclick = () => { cancel(); setText(el('note-count'), notes.length ? 'noteCount' : 'cancelledCount', { count: notes.length }); message('cancelled'); if (duration && !notes.length) changeMode('original'); };
 el('play').onclick = () => void play();

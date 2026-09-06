@@ -55,11 +55,19 @@ npm run test:browser -- <browser-page-id>
 npm run test:song -- <browser-page-id> '<local-song-path>'
 ```
 
-The browser check covers English defaults, language switching and persistence, translated errors, and switching languages during playback without losing state. It imports `public/demo.mp3`, compares the exported MIDI against 53 reference notes in `tests/demo-notes.json`, and checks transcription across chunks, piano audio output, playback, pause, seeking, original audio, cancellation, corrupt files, and silence. It reloads the specified test page.
+The browser check covers English defaults, language switching and persistence, translated errors, and switching languages during playback without losing state. It imports `public/demo.mp3`, compares the exported MIDI against 53 reference notes in `tests/demo-notes.json`, and checks transcription across chunks, piano audio output, playback, pause, seeking, original audio, cancellation, corrupt files, and silence. It also checks demo download failures and cancellation, then transcribes and plays the full Moonlight first movement and Für Elise. It reloads the specified test page.
 
 `test:song` uploads the specified song through the browser and checks that cancellation stops the model process, re-importing works, transcription completes, both monophonic tracks are present, and piano playback produces an audio signal. It verifies the processing flow. Musical fidelity still needs listening comparison with the original; note counts and a nonzero signal cannot establish it.
 
-The demo is an original test melody. Regenerate it with `python3 scripts/make-demo.py` (requires FFmpeg).
+## Demo pieces
+
+Choose a piece beside the upload button, then click **Try a demo**. Demos use the same instrument transcription, piano playback, original audio comparison, and MIDI export as imported files.
+
+- **After the Rain:** a short original test melody. Regenerate it with `python3 scripts/make-demo.py` (requires FFmpeg).
+- **Moonlight Sonata · I — Beethoven:** the full first movement (about 5:07), from a public-domain Mutopia MIDI rendering. The longer piece takes more time to transcribe. See [audio sources and licensing](public/demos/README.md).
+- **Für Elise — Beethoven:** a complete piano performance by V. Gao (about 2:57), released under CC0. See [audio sources and licensing](public/demos/README.md).
+
+The demo area also links to **Lyphard Melody (Starry Sky) — Richard Clayderman** on Spotify. This opens external listening; the recording is not bundled or available for in-app transcription.
 
 ## Credits
 

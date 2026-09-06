@@ -137,7 +137,10 @@ assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-l
 assert.ok(evaluate(() => Number(document.getElementById('seek').value)) >= beforeSwitch);
 assert.match(evaluate(status), /Transcription complete/);
 click('#play');
-const paused = evaluate(() => Number(document.getElementById('seek').value));
+const paused = evaluate(async () => {
+  await new Promise(requestAnimationFrame); // The seek display updates on the next frame after pausing.
+  return Number(document.getElementById('seek').value);
+});
 await sleep(350);
 assert.equal(evaluate(() => Number(document.getElementById('seek').value)), paused);
 evaluate(() => { const seek = document.getElementById('seek'); seek.value = '18.5'; seek.dispatchEvent(new Event('input')); });
@@ -177,5 +180,71 @@ await until(complete);
 assert.match(evaluate(status), /No clear notes detected/);
 assert.equal(evaluate(() => document.getElementById('export').disabled), true);
 console.log('Recovery: invalid file, cancellation, replacement, silence passed');
+
+// Failed/empty downloads must restore controls so another demo can be loaded.
+for (const status of [503, 200]) {
+  evaluate(status => {
+    const fetch = window.fetch;
+    window.fetch = (...args) => {
+      window.fetch = fetch;
+      return Promise.resolve(new Response('', { status }));
+    };
+  }, status);
+  click('#demo');
+  await until(complete);
+  assert.match(evaluate(() => document.getElementById('message').textContent), /Unable to load the demo/);
+  assert.equal(evaluate(() => document.getElementById('demo').disabled), false);
+}
+
+// A cancelled demo download must not replace the score when its response arrives late.
+assert.equal(evaluate(() => document.querySelectorAll('#demo-song option').length), 3);
+evaluate(() => {
+  document.getElementById('demo-song').value = 'demos/moonlight.mp3';
+  const fetch = window.fetch;
+  window.fetch = (...args) => String(args[0]).endsWith('demos/moonlight.mp3')
+    ? new Promise(resolve => { window.check.releaseDemo = () => { window.fetch = fetch; resolve(new Response('stale audio')); }; })
+    : fetch(...args);
+});
+click('#demo');
+assert.equal(evaluate(() => document.getElementById('process-label').textContent), 'Loading the demo audio…');
+click('#cancel');
+evaluate(() => window.check.releaseDemo());
+await sleep(400);
+assert.match(evaluate(status), /Transcription cancelled/);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'silence');
+assert.equal(evaluate(() => document.getElementById('demo').disabled), false);
+
+for (const demo of [
+  { url: 'demos/moonlight.mp3', en: 'Moonlight Sonata · I · Beethoven', zh: '月光奏鸣曲 · 第一乐章 · 贝多芬', duration: 306.67, finalBars: 290 },
+  { url: 'demos/fur-elise.mp3', en: 'Für Elise · Beethoven', zh: '致爱丽丝 · 贝多芬', duration: 176.59, finalBars: 165 },
+]) {
+  const demoStarted = Date.now();
+  evaluate(url => { document.getElementById('demo-song').value = url; }, demo.url);
+  click('#demo');
+  await until(complete, 180000);
+  assert.match(evaluate(status), /Transcription complete/);
+  assert.equal(evaluate(() => document.getElementById('song-name').textContent), demo.en);
+  assert.ok(Math.abs(evaluate(() => Number(document.getElementById('seek').max)) - demo.duration) < 1);
+  language('zh');
+  assert.equal(evaluate(() => document.getElementById('song-name').textContent), demo.zh);
+  assert.equal(evaluate(() => document.getElementById('demo-song').selectedOptions[0].textContent), demo.zh);
+  language('en');
+  evaluate(() => { window.check.midi = null; });
+  click('#export');
+  await until(() => !!window.check.midi);
+  const midi = new midiPackage.Midi(evaluate(async () => Array.from(new Uint8Array(await window.check.midi.arrayBuffer()))));
+  assert.ok(midi.tracks[0].notes.length > 100);
+  assert.ok(midi.tracks[0].notes.some(note => note.time > demo.finalBars), `${demo.en} must transcribe through the final bars`);
+  evaluate(() => { document.getElementById('speed').value = '1'; });
+  click('#play');
+  await until(() => {
+    const samples = new Float32Array(window.check.analyser.fftSize);
+    window.check.analyser.getFloatTimeDomainData(samples);
+    return samples.some(sample => Math.abs(sample) > .0001) && document.querySelectorAll('.key.active').length > 0;
+  }, 10000);
+  click('#play');
+  click('#restart');
+  console.log(`Demo ${demo.en}: full transcription, translated title, MIDI export and audible playback passed in ${((Date.now() - demoStarted) / 1000).toFixed(1)}s`);
+}
 
 console.log('Languages: English default, persisted Chinese, invalid preference fallback, live progress/error/playback translation passed');
