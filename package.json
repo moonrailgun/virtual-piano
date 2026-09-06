@@ -1,0 +1,32 @@
+{
+  "name": "virtual-piano",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/start.mjs dev",
+    "build": "tsc --noEmit && vite build",
+    "preview": "node scripts/start.mjs preview",
+    "test": "node --test tests/music.test.ts",
+    "test:browser": "node tests/browser.mjs",
+    "postinstall": "node scripts/copy-model.mjs",
+    "setup:audio": "uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r server/requirements.txt",
+    "test:audio": ".venv/bin/python tests/pitch_test.py",
+    "test:song": "node tests/song-browser.mjs"
+  },
+  "dependencies": {
+    "@spotify/basic-pitch": "1.0.1",
+    "@tensorflow/tfjs": "4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
+    "@tonejs/midi": "2.0.28"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^8.2.2"
+  },
+  "overrides": {
+    "@spotify/basic-pitch": {
+      "@tensorflow/tfjs": "$@tensorflow/tfjs"
+    }
+  }
+}
