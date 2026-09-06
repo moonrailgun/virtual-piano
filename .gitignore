@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/model/
+public/wasm/
+.DS_Store
+.venv/
+__pycache__/
