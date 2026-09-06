@@ -5,3 +5,5 @@ public/wasm/
 .DS_Store
 .venv/
 __pycache__/
+.vercel/
+.env*

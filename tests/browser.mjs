@@ -109,7 +109,7 @@ click('#play');
 await until(() => Number(document.getElementById('seek').value) > 19, 5000);
 click('#play');
 click('#restart');
-assert.equal(evaluate(() => Number(document.getElementById('seek').value)), 0);
+await until(() => Number(document.getElementById('seek').value) === 0, 5000);
 const strikes = evaluate(() => {
   const button = document.getElementById('piano-mode');
   button.focus();

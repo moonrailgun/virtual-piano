@@ -74,7 +74,11 @@ let busy = false;
 let starting = false;
 let dirty = true;
 const held = new Map<number, { stop?: () => void }>();
-fetch('/api/health').then(response => response.json()).then(data => {
+if (import.meta.env.VITE_BROWSER_ONLY === '1') {
+  el<HTMLSelectElement>('transcription-mode').value = 'instrument';
+  el<HTMLSelectElement>('transcription-mode').options[0].disabled = true;
+  el('model-status').textContent = '在线版在浏览器中转谱，适合清晰乐器录音；歌曲增强模式需在本机运行';
+} else fetch('/api/health').then(response => response.json()).then(data => {
   songModelReady = data.service === 'echo-piano' && data.songMode;
   if (!songModelReady) throw new Error();
   el('model-status').textContent = '先分离人声与鼓点，再提取旋律 · 约需数分钟';
