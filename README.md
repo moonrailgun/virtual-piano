@@ -1,10 +1,16 @@
-# 余音 · Echo Piano
+# Echo Piano
 
-把 MP3 拖进浏览器，自动生成 88 键钢琴卷帘谱。支持落音动画、琴键高亮、钢琴重奏、原音对照、进度跳转、变速、手动弹奏和 MIDI 导出。
+**English** | [简体中文](README.zh-CN.md)
 
-## 运行
+Drop an MP3 into your browser and turn it into an 88-key piano roll. Watch falling notes and highlighted keys, play the piano arrangement, compare it with the original audio, seek, change playback speed, play manually, and export MIDI.
 
-需要 Node.js 22.18+（开发时使用 Node.js 24）。
+[Try Echo Piano](https://virtual-piano-sable.vercel.app)
+
+The interface defaults to English. Switch between English and Simplified Chinese in the header; your choice is saved in the current browser. Switching languages preserves the score and playback state. Project documentation and development content use English first. Both UI dictionaries live in `src/i18n.ts`.
+
+## Run locally
+
+Requires Node.js 22.18+ (developed with Node.js 24).
 
 ```sh
 npm install
@@ -12,9 +18,9 @@ npm run setup:audio
 npm run dev
 ```
 
-歌曲模式还需要 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和 FFmpeg；`setup:audio` 在项目内创建 Python 3.11 环境并安装模型依赖。首次处理会下载 Demucs 权重；此后可使用本机缓存。`npm run dev` / `preview` 自动启动本机模型服务，无需 API Key。
+Song mode also requires [uv](https://docs.astral.sh/uv/getting-started/installation/) and FFmpeg. `setup:audio` creates a project-local Python 3.11 environment and installs model dependencies. The first transcription downloads Demucs weights; later runs use the local cache. `npm run dev` and `npm run preview` start the local model service automatically. No API key is needed.
 
-打开终端显示的本地地址，选择「歌曲 · 主旋律 + 低音」后拖入歌曲。钢琴、吉他等清晰乐器录音选择「纯乐器 · 多音转谱」，这一模式不需要 Python，示例也使用这个模式。点击琴键，或用 A–L 和相邻黑键快捷键弹奏；空格播放 / 暂停。
+Open the local URL printed in the terminal. Choose **Song · Melody + bass** and import a song. For clear piano, guitar, or other instrument recordings, choose **Instrument · Polyphonic**; this mode needs no Python setup and is also used by the demo. Click the keys, or use A–L and the neighboring black-key shortcuts to play. Press Space to play or pause.
 
 ```sh
 npm test
@@ -23,43 +29,41 @@ npm run build
 npm run preview
 ```
 
-歌曲模式将音频发送到 `127.0.0.1:8001` 的本机 Python 服务，临时文件在完成或取消后删除，音频不发送到外部服务。仅提供 `dist/` 的静态部署可以使用纯乐器模式；歌曲模式需要同时运行本机服务与 `/api` 代理。中文衬线字体可从 Google Fonts 加载，加载失败时使用系统字体。
+Song mode sends audio to the local Python service at `127.0.0.1:8001`. Temporary files are deleted after completion or cancellation; audio is never sent to an external service. Static deployments of `dist/` support instrument mode. Song mode also needs the local service and the `/api` proxy. The Chinese serif font may load from Google Fonts, with system fonts as a fallback.
 
-## 工作方式与边界
+## Deploy to Vercel
 
-### Vercel 公网部署
+Import [moonrailgun/virtual-piano](https://github.com/moonrailgun/virtual-piano) into Vercel. `vercel.json` configures the Vite build, model asset copying, and browser transcription mode.
 
-仓库：[moonrailgun/virtual-piano](https://github.com/moonrailgun/virtual-piano)。将该仓库导入 Vercel 即可，`vercel.json` 已配置 Vite 构建、模型资产复制和浏览器转谱模式。
+The public version supports audio import, polyphonic instrument transcription, piano playback, original audio comparison, and MIDI export. Audio is processed in the visitor's browser. Enhanced song mode is disabled on the public site; the Python/PyTorch service remains a local feature and is not included in the static deployment. Hosting enhanced song mode requires a separate model server rather than a Vercel function.
 
-公网版支持拖入音频、纯乐器多音转谱、钢琴重奏、原音对照和 MIDI 导出，音频在访客浏览器里处理。歌曲增强选项在公网版禁用；Python / PyTorch 歌曲服务保留为本机功能，不会随静态网页部署。需要公网歌曲增强时，应另行部署模型服务器，不能直接套用 Vercel 函数。
+## How transcription works
 
-### 转谱方式
+- **Song mode:** [Demucs](https://github.com/facebookresearch/demucs) separates vocals, bass, drums, and other accompaniment. [CREPE](https://github.com/maxrmorrison/torchcrepe) then tracks vocal and bass pitch. Pitch contours undergo jitter filtering, rest detection, and note segmentation before export as separate melody and bass MIDI tracks. Audio is processed in 30-second chunks with context on both sides. Apple MPS or CUDA is used when available, otherwise CPU. A full song may take several minutes, longer on CPU. One song is processed at a time; cancellation is supported. Input is limited to 100 MB and 30 minutes.
+- **Instrument mode:** Web Audio decodes audio into 22,050 Hz mono. [Spotify Basic Pitch](https://github.com/spotify/basic-pitch-ts) runs in a Web Worker using TensorFlow.js WASM to detect polyphonic pitches, note timing, and velocity. Inference runs in overlapping chunks.
 
-- **歌曲模式**：[Demucs](https://github.com/facebookresearch/demucs) 先分离人声、低音、鼓和其他伴奏，再用 [CREPE](https://github.com/maxrmorrison/torchcrepe) 分别追踪人声和低音的音高。音高轮廓经过短抖动过滤、停顿检测和音符切分，导出独立的旋律 / 低音 MIDI 轨道。30 秒分块，两侧保留上下文。优先使用 Apple MPS / CUDA，否则使用 CPU；整首歌曲可能需要数分钟，CPU 更慢。一次处理一首，支持取消，输入限制为 100 MB / 30 分钟。
-- **纯乐器模式**：Web Audio 解码为 22,050 Hz 单声道；[Spotify Basic Pitch](https://github.com/spotify/basic-pitch-ts) 在 Web Worker 中通过 TensorFlow.js WASM 识别多音、起止时间和力度。分块推理并保留重叠区。
+Song mode creates a simplified piano arrangement of the lead vocal melody and bass. It **does not reconstruct full chords, orchestration, or fingering**. Intros and instrumental passages may be sparse; slides, backing vocals, and fast ornaments may be inaccurate. Instrument mode can mistake overtones and accompaniment for the melody in a full song mix. Both modes produce an initial transcription for editing: a piano roll and MIDI with timing in seconds, rather than engraved sheet music. Original playback uses the imported file; piano playback uses bundled piano samples.
 
-歌曲模式生成主唱旋律与低音的简化钢琴版，**不重建完整和弦、配器或指法**；前奏、间奏可能较稀疏，滑音、合唱和密集装饰音仍可能识别不准。纯乐器模式直接处理流行歌曲混音时容易把泛音和伴奏误识别为主旋律。两种模式都属于自动转谱初稿，输出按秒定位的卷帘谱与 MIDI，不是排版五线谱。原音仍使用导入的文件，钢琴重奏使用本地钢琴采样。
+Basic Pitch's older TensorFlow.js 3.x WASM `Fill` kernel cannot handle an omitted dtype during padding. Dependencies therefore use the fixed 4.22.0 release, with an override to prevent loading two TensorFlow versions.
 
-Basic Pitch 的旧 TensorFlow.js 3.x WASM `Fill` 内核无法处理补零时省略的 dtype，因此依赖统一使用修复后的 4.22.0，并通过 override 避免同时加载两套 TensorFlow。
+## Browser verification
 
-## 浏览器验证
-
-`tests/music.test.ts` 检查琴键布局、分块音符合并与跳转可见区。另有不增加测试依赖的 Orca 浏览器检查：先在 Orca 打开开发或预览地址，再执行：
+`npm test` checks piano key geometry, chunk merging, seek visibility, and translation consistency. Browser checks use Orca without adding a test dependency. Open the development or preview URL in an Orca browser tab, then run:
 
 ```sh
 npm run test:browser -- <browser-page-id>
-npm run test:song -- <browser-page-id> '<本地歌曲路径>'
+npm run test:song -- <browser-page-id> '<local-song-path>'
 ```
 
-它实际拖入 `public/demo.mp3`，把导出的 MIDI 与 `tests/demo-notes.json` 的 53 个参考音符比较，并检查跨块识别、钢琴音频信号、播放 / 暂停、跳转、原音、取消、损坏文件和静音。会重载指定测试页面。
+The browser check covers English defaults, language switching and persistence, translated errors, and switching languages during playback without losing state. It imports `public/demo.mp3`, compares the exported MIDI against 53 reference notes in `tests/demo-notes.json`, and checks transcription across chunks, piano audio output, playback, pause, seeking, original audio, cancellation, corrupt files, and silence. It reloads the specified test page.
 
-`test:song` 通过浏览器上传指定的真实歌曲，检查取消后模型进程退出、重新导入、完整转谱、两个单音轨道以及钢琴音频信号。它验证运行链路；音乐还原度仍需要与原音试听比较，不能由音符数量或信号非零证明。
+`test:song` uploads the specified song through the browser and checks that cancellation stops the model process, re-importing works, transcription completes, both monophonic tracks are present, and piano playback produces an audio signal. It verifies the processing flow. Musical fidelity still needs listening comparison with the original; note counts and a nonzero signal cannot establish it.
 
-示例音频为原创测试旋律，可通过 `python3 scripts/make-demo.py` 重新生成（需要 FFmpeg）。
+The demo is an original test melody. Regenerate it with `python3 scripts/make-demo.py` (requires FFmpeg).
 
-## 来源
+## Credits
 
-- 交互参考：[Brandenburg Piano](https://brandenburg-piano.vercel.app/)。
-- 转谱模型：[Spotify Basic Pitch](https://github.com/spotify/basic-pitch-ts)，Apache-2.0。
-- 歌曲分离：[Demucs](https://github.com/facebookresearch/demucs)，MIT；音高追踪：[torchcrepe](https://github.com/maxrmorrison/torchcrepe)，MIT。
-- 钢琴采样：Alexander Holm 的 Salamander Grand Piano，CC BY 3.0；来源与许可见 [public/piano/README.txt](public/piano/README.txt)。
+- Interaction reference: [Brandenburg Piano](https://brandenburg-piano.vercel.app/).
+- Transcription model: [Spotify Basic Pitch](https://github.com/spotify/basic-pitch-ts), Apache-2.0.
+- Song separation: [Demucs](https://github.com/facebookresearch/demucs), MIT. Pitch tracking: [torchcrepe](https://github.com/maxrmorrison/torchcrepe), MIT.
+- Piano samples: Alexander Holm's Salamander Grand Piano, CC BY 3.0. See [public/piano/README.txt](public/piano/README.txt) for provenance and license details.

@@ -24,8 +24,9 @@ async function until(fn, timeout = 600000) {
   while (Date.now() < deadline) { if (evaluate(fn)) return; await sleep(500); }
   throw new Error(`Timed out: ${fn}`);
 }
+evaluate(() => localStorage.removeItem('echo-piano-language'));
 orca('reload');
-await until(() => document.getElementById('model-status').textContent.includes('约需'), 10000);
+await until(() => document.getElementById('model-status').dataset.i18n === 'modelReady', 10000);
 evaluate(() => {
   window.check = {};
   const create = AudioContext.prototype.createDynamicsCompressor;
@@ -43,7 +44,7 @@ evaluate(() => {
 orca('upload', '--element', '#file', '--files', path);
 await until(() => Number(document.getElementById('progress').value) > 0, 30000);
 click('#cancel');
-assert.match(evaluate(() => document.getElementById('message').textContent), /已取消/);
+assert.match(evaluate(() => document.getElementById('message').textContent), /Transcription cancelled/);
 await sleep(2000);
 const processes = execFileSync('ps', ['-axo', 'command'], { encoding: 'utf8' });
 assert.ok(!processes.split('\n').some(line => /python.*server\/transcribe\.py/.test(line)), 'Cancel must stop the model process');
@@ -52,7 +53,7 @@ console.log('Song cancellation: UI recovered and model process exited');
 const started = Date.now();
 orca('upload', '--element', '#file', '--files', path);
 await until(() => document.getElementById('processing').hidden);
-assert.match(evaluate(() => document.getElementById('message').textContent), /主旋律与低音已提取/);
+assert.match(evaluate(() => document.getElementById('message').textContent), /Melody and bass extracted/);
 click('#export');
 await until(() => !!window.check.midi, 10000);
 const bytes = evaluate(async () => Array.from(new Uint8Array(await window.check.midi.arrayBuffer())));

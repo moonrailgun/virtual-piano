@@ -48,12 +48,13 @@ def transcribe(path):
 
     torch.set_num_threads(min(4, os.cpu_count() or 1))
     device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
-    emit(type='progress', progress=.01, label='正在加载人声分离模型，首次运行会下载模型…')
+    emit(type='progress', progress=.01, stage='loadingSeparation', label='Loading vocal separation model; the first run downloads weights…')
     model = get_model('htdemucs').eval()
     wav = load_track(Path(path), model.audio_channels, model.samplerate)
     duration = wav.shape[-1] / model.samplerate
     if not .1 <= duration <= 1800:
-        raise ValueError('歌曲模式支持 0.1 秒至 30 分钟的音频。')
+        emit(type='error', code='songDuration', message='Song mode supports audio from 0.1 seconds to 30 minutes.')
+        return
     notes = []
     # Context on both sides protects phrase boundaries; only retain each core.
     for offset in range(0, int(np.ceil(duration)), 30):
@@ -62,10 +63,10 @@ def transcribe(path):
         mean, std = chunk.mean(), chunk.mean(0).std()
         if std < 1e-5:
             continue
-        emit(type='progress', progress=.05 + .9 * offset / duration, label=f'正在分离人声、低音与鼓点 · {offset // 60}:{offset % 60:02d}')
+        emit(type='progress', progress=.05 + .9 * offset / duration, stage='separating', time=f'{offset // 60}:{offset % 60:02d}', label='Separating vocals, bass, and drums…')
         sources = apply_model(model, ((chunk - mean) / std)[None], device=device, shifts=0, progress=False)[0] * std
         for index, (source, part, low, high) in enumerate([('vocals', 'melody', 65, 1100), ('bass', 'bass', 32.7, 350)]):
-            emit(type='progress', progress=min(.98, .05 + .9 * (offset + 10 + 10 * index) / duration), label='正在追踪主旋律…' if part == 'melody' else '正在提取低音伴奏…')
+            emit(type='progress', progress=min(.98, .05 + .9 * (offset + 10 + 10 * index) / duration), stage='trackingMelody' if part == 'melody' else 'trackingBass', label='Tracking main melody…' if part == 'melody' else 'Extracting bass accompaniment…')
             samples = librosa.resample(sources[model.sources.index(source)].mean(0).numpy(), orig_sr=model.samplerate, target_sr=16000)
             rms = librosa.feature.rms(y=samples, frame_length=1024, hop_length=160)[0]
             if np.max(rms) < .001:

@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not completed and process.poll() is not None:
                         errors.seek(0)
                         print(errors.read()[-4000:], file=sys.stderr)
-                        self.wfile.write(json.dumps(dict(type='error', message='本地转谱进程退出，请查看运行终端。'), ensure_ascii=False).encode() + b'\n')
+                        self.wfile.write(json.dumps(dict(type='error', code='songProcessExited', message='The local transcription process exited. Check the terminal.'), ensure_ascii=False).encode() + b'\n')
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
         finally:

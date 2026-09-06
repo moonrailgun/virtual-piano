@@ -26,7 +26,28 @@ async function until(fn, timeout = 90000) {
 }
 const complete = () => document.getElementById('processing').hidden;
 const status = () => document.getElementById('message').textContent;
+function language(value) {
+  evaluate(value => { const select = document.getElementById('language'); select.value = value; select.dispatchEvent(new Event('change')); }, value);
+}
+evaluate(() => localStorage.removeItem('echo-piano-language'));
 orca('reload');
+await until(() => !!document.getElementById('language'), 10000);
+assert.equal(evaluate(() => document.documentElement.lang), 'en');
+assert.equal(evaluate(() => document.title), 'Echo Piano');
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), 'Play');
+assert.doesNotMatch(evaluate(() => document.body.innerText.replaceAll('中文', '')), /\p{Script=Han}/u);
+language('zh');
+assert.equal(evaluate(() => document.documentElement.lang), 'zh-CN');
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), '播放');
+orca('reload');
+await until(() => !!document.getElementById('language'), 10000);
+assert.equal(evaluate(() => document.getElementById('language').value), 'zh');
+assert.equal(evaluate(() => document.documentElement.lang), 'zh-CN');
+evaluate(() => localStorage.setItem('echo-piano-language', 'unsupported'));
+orca('reload');
+await until(() => !!document.getElementById('language'), 10000);
+assert.equal(evaluate(() => document.documentElement.lang), 'en');
+evaluate(() => { document.getElementById('transcription-mode').value = 'instrument'; });
 evaluate(() => {
   window.check = { strikes: 0 };
   const create = AudioContext.prototype.createDynamicsCompressor;
@@ -53,11 +74,19 @@ evaluate(() => {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 });
 await until(complete);
+assert.match(evaluate(status), /Unable to decode/);
+language('zh');
 assert.match(evaluate(status), /无法解码/);
+language('en');
+assert.match(evaluate(status), /Unable to decode/);
 click('#demo');
 await until(() => !document.getElementById('processing').hidden);
+language('zh');
+assert.match(evaluate(() => document.getElementById('process-label').textContent), /正在/);
 click('#cancel');
 assert.match(evaluate(status), /已取消/);
+language('en');
+assert.match(evaluate(status), /Transcription cancelled/);
 
 const started = Date.now();
 assert.equal(evaluate(async () => {
@@ -69,7 +98,7 @@ assert.equal(evaluate(async () => {
   return overlay && document.getElementById('drop-overlay').hidden;
 }), true);
 await until(complete);
-assert.match(evaluate(status), /转谱完成/);
+assert.match(evaluate(status), /Transcription complete/);
 assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'drag-test');
 click('#export');
 await until(() => !!window.check.midi);
@@ -97,6 +126,16 @@ assert.ok(evaluate(() => {
   window.check.analyser.getFloatTimeDomainData(samples);
   return samples.some(sample => Math.abs(sample) > .0001) && document.querySelectorAll('.key.active').length > 0;
 }), 'Piano must produce a nonzero audio signal and highlight keys');
+const beforeSwitch = evaluate(() => Number(document.getElementById('seek').value));
+language('zh');
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), '暂停');
+assert.match(evaluate(() => document.getElementById('instrument-status').textContent), /钢琴演奏中/);
+assert.match(evaluate(() => document.getElementById('note-count').textContent), /个音符/);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'drag-test');
+language('en');
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), 'Pause');
+assert.ok(evaluate(() => Number(document.getElementById('seek').value)) >= beforeSwitch);
+assert.match(evaluate(status), /Transcription complete/);
 click('#play');
 const paused = evaluate(() => Number(document.getElementById('seek').value));
 await sleep(350);
@@ -135,6 +174,8 @@ evaluate(() => {
   window.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, cancelable: true }));
 });
 await until(complete);
-assert.match(evaluate(status), /没有识别出清晰的音符/);
+assert.match(evaluate(status), /No clear notes detected/);
 assert.equal(evaluate(() => document.getElementById('export').disabled), true);
 console.log('Recovery: invalid file, cancellation, replacement, silence passed');
+
+console.log('Languages: English default, persisted Chinese, invalid preference fallback, live progress/error/playback translation passed');

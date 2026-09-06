@@ -1,4 +1,5 @@
 import './style.css';
+import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, type MessageKey, type Params } from './i18n';
 import { PianoAudio, decodeAudio } from './audio';
 import { formatTime, noteName, pianoKeys, visibleNotes, type Note } from './music';
 
@@ -15,49 +16,52 @@ function icon(name: keyof typeof icons) { return `<svg viewBox="0 0 24 24" fill=
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <header class="site-header">
-    <a class="brand" href="./" aria-label="余音首页"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><b>余音</b><span class="brand-en">ECHO PIANO</span></a>
-    <span class="local-badge"><span></span> 本地运行 · 音频不离开设备</span>
+    <a class="brand" href="./" data-i18n-label="home"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><b>Echo Piano</b></a>
+    <div class="header-controls"><span class="local-badge"><i></i><span data-i18n="localBadge"></span></span><select id="language" data-i18n-label="language"><option value="en">English</option><option value="zh">中文</option></select></div>
   </header>
   <main>
     <section class="intro">
-      <div><p class="eyebrow">A LITTLE CLOSER TO THE MUSIC</p><h1>让每一首歌，<em>落在琴键上。</em></h1></div>
-      <p class="intro-copy">拖入一段喜欢的旋律。<br>让声音成为曲谱，让聆听变成演奏。</p>
+      <div><p class="eyebrow" data-i18n="eyebrow"></p><h1><span data-i18n="heroLead"></span><em data-i18n="heroEmphasis"></em></h1></div>
+      <p class="intro-copy"><span data-i18n="introFirst"></span><br><span data-i18n="introSecond"></span></p>
     </section>
-    <section class="import-panel" id="drop-zone" aria-label="音频导入区域">
-      <button class="upload-target" id="choose"><span class="upload-icon">${icon('upload')}</span><span><strong>把音乐拖到这里<span class="choose-hint">，或点击选择</span></strong><small>MP3 / WAV / M4A / OGG · 自动转成钢琴曲谱</small></span></button>
-      <div class="demo-wrap"><span>还没有准备好音乐？</span><button class="text-button" id="demo">听听一段示例 <span aria-hidden="true">↗</span></button></div>
+    <section class="import-panel" id="drop-zone" data-i18n-label="importRegion">
+      <button class="upload-target" id="choose"><span class="upload-icon">${icon('upload')}</span><span><strong><span data-i18n="dropMusic"></span><span class="choose-hint" data-i18n="chooseHint"></span></strong><small data-i18n="formats"></small></span></button>
+      <div class="demo-wrap"><span data-i18n="demoPrompt"></span><button class="text-button" id="demo"><span data-i18n="demo"></span><span class="demo-arrow" aria-hidden="true">↗</span></button></div>
       <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" hidden>
     </section>
-    <div class="transcription-options"><label for="transcription-mode">音频类型</label><select id="transcription-mode"><option value="song">歌曲 · 主旋律 + 低音</option><option value="instrument">纯乐器 · 多音转谱</option></select><span id="model-status">正在连接本机歌曲模型…</span></div>
+    <div class="transcription-options"><label for="transcription-mode" data-i18n="audioType"></label><select id="transcription-mode"><option value="song" data-i18n="songMode"></option><option value="instrument" data-i18n="instrumentMode"></option></select><span id="model-status" data-i18n="modelConnecting"></span></div>
     <section id="processing" class="processing" hidden>
-      <span class="spinner"></span><div><strong id="process-label">正在读取音频…</strong><progress id="progress" max="1" value="0" aria-label="转谱进度"></progress></div><span id="percent">0%</span><button id="cancel" class="text-button">取消</button>
+      <span class="spinner"></span><div><strong id="process-label" data-i18n="readingAudio"></strong><progress id="progress" max="1" value="0" data-i18n-label="progress"></progress></div><span id="percent">0%</span><button id="cancel" class="text-button" data-i18n="cancel"></button>
     </section>
     <p id="message" class="message" role="status" aria-live="polite"></p>
-    <section class="instrument" aria-label="虚拟钢琴与曲谱">
+    <section class="instrument" data-i18n-label="instrumentRegion">
       <div class="score-header">
-        <div class="song-info"><span class="record-icon">${icon('music')}</span><div><p class="eyebrow">YOUR PIANO ROLL</p><h2 id="song-name">一首歌的另一种模样</h2></div></div>
-        <div class="score-actions"><span class="note-count" id="note-count">88 键 · 无限旋律</span><button id="export" class="outline-button" disabled>${icon('download')} 导出 MIDI</button></div>
+        <div class="song-info"><span class="record-icon">${icon('music')}</span><div><p class="eyebrow" data-i18n="scoreEyebrow"></p><h2 id="song-name" data-i18n="emptySong"></h2></div></div>
+        <div class="score-actions"><span class="note-count" id="note-count" data-i18n="emptyCount"></span><button id="export" class="outline-button" disabled>${icon('download')}<span data-i18n="export"></span></button></div>
       </div>
       <div class="piano-scroll" id="piano-scroll">
         <div class="piano-surface">
-          <div class="roll"><canvas id="roll" role="img" aria-label="钢琴卷帘谱：音符向下落到对应琴键"></canvas><div class="roll-empty" id="empty"><span class="empty-glyph">♫</span><strong>音乐，从这里开始</strong><span>导入音频后，音符会沿着琴键缓缓落下</span></div><div class="roll-label"><span class="dot bass"></span> 低音 <span class="dot treble"></span> 高音</div><span class="time-guide">↓ 演奏线</span></div>
-          <div class="keyboard" id="keyboard" aria-label="88 键钢琴"></div>
+          <div class="roll"><canvas id="roll" role="img" data-i18n-label="roll"></canvas><div class="roll-empty" id="empty"><span class="empty-glyph">♫</span><strong data-i18n="emptyTitle"></strong><span data-i18n="emptyHint"></span></div><div class="roll-label"><span class="dot bass"></span><span data-i18n="bass"></span><span class="dot treble"></span><span data-i18n="treble"></span></div><span class="time-guide" data-i18n="playhead"></span></div>
+          <div class="keyboard" id="keyboard" data-i18n-label="keyboard"></div>
         </div>
       </div>
       <div class="transport">
-        <div class="transport-top"><div class="playback-buttons"><button class="icon-button" id="restart" aria-label="回到开头" disabled>${icon('rewind')}</button><button class="play-button" id="play" aria-label="播放" disabled>${icon('play')}</button><span class="time"><span id="current-time">0:00</span><span class="time-divider">/</span><span id="duration">0:00</span></span></div>
-        <div class="listen-mode" role="group" aria-label="试听音源"><button id="piano-mode" class="selected" aria-pressed="true">钢琴重奏</button><button id="original-mode" aria-pressed="false">原音对照</button></div>
-        <div class="audio-settings"><label class="speed-label"><span class="sr-only">播放速度</span><select id="speed" aria-label="播放速度"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1× 速度</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label><label class="volume-label">${icon('sound')}<span class="sr-only">音量</span><input type="range" id="volume" min="0" max="1" step="0.01" value="0.65" aria-label="音量"></label></div></div>
-        <input type="range" id="seek" min="0" max="1" step="0.01" value="0" aria-label="播放进度" disabled>
+        <div class="transport-top"><div class="playback-buttons"><button class="icon-button" id="restart" data-i18n-label="restart" disabled>${icon('rewind')}</button><button class="play-button" id="play" data-i18n-label="play" disabled>${icon('play')}</button><span class="time"><span id="current-time">0:00</span><span class="time-divider">/</span><span id="duration">0:00</span></span></div>
+        <div class="listen-mode" role="group" data-i18n-label="listenMode"><button id="piano-mode" class="selected" aria-pressed="true" data-i18n="pianoMode"></button><button id="original-mode" aria-pressed="false" data-i18n="originalMode"></button></div>
+        <div class="audio-settings"><label class="speed-label"><span class="sr-only" data-i18n="speed"></span><select id="speed" data-i18n-label="speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected data-i18n="normalSpeed"></option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label><label class="volume-label">${icon('sound')}<span class="sr-only" data-i18n="volume"></span><input type="range" id="volume" min="0" max="1" step="0.01" value="0.65" data-i18n-label="volume"></label></div></div>
+        <input type="range" id="seek" min="0" max="1" step="0.01" value="0" data-i18n-label="seek" disabled>
       </div>
-      <div class="instrument-footer"><span><span class="live-dot"></span><span id="instrument-status">钢琴已就绪</span></span><span>点击琴键自由演奏 <span class="footer-separator">·</span> <kbd>A</kbd>–<kbd>L</kbd> 白键 <span class="footer-separator">·</span> <kbd>空格</kbd> 播放 / 暂停</span></div>
+      <div class="instrument-footer"><span><span class="live-dot"></span><span id="instrument-status" data-i18n="pianoReady"></span></span><span class="desktop-hint"><span data-i18n="clickKeys"></span><span class="footer-separator">·</span><kbd>A</kbd>–<kbd>L</kbd> <span data-i18n="whiteKeys"></span><span class="footer-separator">·</span><kbd data-i18n="space"></kbd> <span data-i18n="playPause"></span></span><span class="mobile-hint" data-i18n="mobileHint"></span></div>
     </section>
-    <footer class="page-footer"><p>每一个声音，都有它的形状。</p><span>歌曲模式提取主旋律与低音；纯乐器模式保留和弦。AI 转谱仍可能需要校正。</span><a href="./piano/README.txt" target="_blank" rel="noopener">Piano samples · Alexander Holm</a></footer>
+    <footer class="page-footer"><p data-i18n="footer"></p><span data-i18n="limitations"></span><a href="./piano/README.txt" target="_blank" rel="noopener" data-i18n="sampleCredit"></a></footer>
   </main>
-  <div class="drop-overlay" id="drop-overlay" hidden><span>${icon('upload')}</span><h2>松开，让音乐落下</h2><p>你的音频只会在这台设备上处理</p></div>
+  <div class="drop-overlay" id="drop-overlay" hidden><span>${icon('upload')}</span><h2 data-i18n="dropTitle"></h2><p data-i18n="dropPrivacy"></p></div>
 `;
+applyTranslations();
 
 function el<T extends HTMLElement = HTMLElement>(id: string) { return document.getElementById(id) as T; }
+el<HTMLSelectElement>('language').value = locale;
+el<HTMLSelectElement>('language').onchange = event => { setLocale((event.target as HTMLSelectElement).value); applyTranslations(); };
 const audio = new PianoAudio();
 const keys = pianoKeys();
 let notes: Note[] = [];
@@ -77,14 +81,14 @@ const held = new Map<number, { stop?: () => void }>();
 if (import.meta.env.VITE_BROWSER_ONLY === '1') {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   el<HTMLSelectElement>('transcription-mode').options[0].disabled = true;
-  el('model-status').textContent = '在线版在浏览器中转谱，适合清晰乐器录音；歌曲增强模式需在本机运行';
+  setText(el('model-status'), 'browserOnly');
 } else fetch('/api/health').then(response => response.json()).then(data => {
   songModelReady = data.service === 'echo-piano' && data.songMode;
   if (!songModelReady) throw new Error();
-  el('model-status').textContent = '先分离人声与鼓点，再提取旋律 · 约需数分钟';
+  setText(el('model-status'), 'modelReady');
 }).catch(() => {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
-  el('model-status').textContent = '歌曲模型未启动；运行 npm run setup:audio 后重启服务';
+  setText(el('model-status'), 'modelMissing');
 });
 const computerKeys: Record<string, number> = { a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70, j: 71, k: 72, o: 73, l: 74, p: 75, ';': 76 };
 const keyboard = el('keyboard');
@@ -107,25 +111,25 @@ for (const key of keys) {
 }
 const keyElements = Array.from(keyboard.children) as HTMLButtonElement[];
 
-function message(text: string, error = false) { el('message').textContent = text; el('message').classList.toggle('error', error); }
+function message(key: MessageKey, error = false, params: Params = {}) { setText(el('message'), key, params); el('message').classList.toggle('error', error); }
 async function pressKey(pitch: number) {
   if (held.has(pitch)) return;
   const state: { stop?: () => void } = {};
   held.set(pitch, state);
   dirty = true;
   try { await audio.ready(); if (held.get(pitch) === state) state.stop = audio.strike(pitch); }
-  catch (error) { message(String(error), true); releaseKey(pitch); }
+  catch (error) { message('playbackFailed', true, { reason: errorReason(error) }); releaseKey(pitch); }
 }
 function releaseKey(pitch: number) { held.get(pitch)?.stop?.(); held.delete(pitch); dirty = true; }
 function updateControls() {
   el<HTMLButtonElement>('play').disabled = busy || !duration || (mode === 'piano' && !notes.length);
   el('play').innerHTML = icon(audio.playing || starting ? 'pause' : 'play');
-  el('play').setAttribute('aria-label', audio.playing || starting ? '暂停' : '播放');
+  setLabel(el('play'), audio.playing || starting ? 'pause' : 'play');
   el<HTMLButtonElement>('restart').disabled = !duration || busy;
   el<HTMLInputElement>('seek').disabled = !duration || busy;
   el<HTMLButtonElement>('export').disabled = !notes.length || busy;
   el('empty').hidden = notes.length > 0;
-  el('instrument-status').textContent = busy ? '正在聆听你的音乐' : audio.playing ? (mode === 'piano' ? '钢琴演奏中' : '原音播放中') : notes.length ? '曲谱已就绪' : '钢琴已就绪';
+  setText(el('instrument-status'), busy ? 'listening' : audio.playing ? (mode === 'piano' ? 'pianoPlaying' : 'originalPlaying') : notes.length ? 'scoreReady' : 'pianoReady');
   el('instrument-status').parentElement!.classList.toggle('is-playing', audio.playing);
   dirty = true;
 }
@@ -137,7 +141,7 @@ async function play() {
   starting = true;
   updateControls();
   try { await audio.play(notes, position, Number(el<HTMLSelectElement>('speed').value), mode); }
-  catch (error) { message(`无法播放：${error instanceof Error ? error.message : error}`, true); }
+  catch (error) { message('playbackFailed', true, { reason: errorReason(error) }); }
   starting = false;
   updateControls();
 }
@@ -164,24 +168,24 @@ function finish(result: Note[], song: boolean) {
   el<HTMLProgressElement>('progress').value = 1;
   el('percent').textContent = '100%';
   const melody = notes.filter(note => note.part === 'melody').length;
-  el('note-count').textContent = song ? `${melody} 旋律 · ${notes.length - melody} 低音 · ${formatTime(duration)}` : `${notes.length} 个音符 · ${formatTime(duration)}`;
-  message(notes.length ? (song ? '主旋律与低音已提取。歌曲模式保留两个声部，前奏和无主唱段落可能较稀疏。' : '转谱完成。按空格开始演奏，也可以切换原音对照。') : '没有识别出清晰的音符。可以试听原音，或尝试一段更清晰的乐器录音。');
+  setText(el('note-count'), song ? 'songSummary' : 'noteSummary', { count: notes.length, melody, bass: notes.length - melody, duration: formatTime(duration) });
+  message(notes.length ? (song ? 'songComplete' : 'complete') : 'noNotes');
   changeMode(notes.length ? 'piano' : 'original');
   updateControls();
 }
 async function importAudio(file: File) {
-  if (!file.size) { message('文件是空的，请选择一份音频文件。', true); return; }
+  if (!file.size) { message('emptyFile', true); return; }
   const song = el<HTMLSelectElement>('transcription-mode').value === 'song';
-  if (song && !songModelReady) { message('歌曲模式需要本机模型服务。请运行 npm run setup:audio 并重启 npm run dev，或选择纯乐器模式。', true); return; }
+  if (song && !songModelReady) { message('songUnavailable', true); return; }
   cancel();
   pause();
   const currentJob = job;
   busy = true;
   el('processing').hidden = false;
-  el('process-label').textContent = '正在解码音频…';
+  setText(el('process-label'), 'decoding');
   el<HTMLProgressElement>('progress').value = 0;
   el('percent').textContent = '0%';
-  message('');
+  setRawText(el('message'), ''); el('message').classList.remove('error');
   updateControls();
   let decoding = true;
   try {
@@ -195,22 +199,22 @@ async function importAudio(file: File) {
     position = 0;
     notes = [];
     songName = file.name.replace(/\.[^.]+$/, '');
-    el('song-name').textContent = songName;
-    el('note-count').textContent = `${formatTime(duration)} · 识别中`;
+    setRawText(el('song-name'), songName);
+    setText(el('note-count'), 'recognizing', { duration: formatTime(duration) });
     el('duration').textContent = formatTime(duration);
     el<HTMLInputElement>('seek').max = String(duration);
-    el('process-label').textContent = '正在加载转谱模型…';
+    setText(el('process-label'), 'loadingModel');
     updateControls();
     if (song) {
       request = new AbortController();
       const response = await fetch('/api/transcribe', { method: 'POST', body: file, signal: request.signal, headers: { 'Content-Type': 'application/octet-stream' } });
-      if (!response.ok || !response.body) throw new Error(response.status === 409 ? '本机仍在结束上一首歌，请稍后重新导入。' : response.status === 413 ? '歌曲模式支持 100 MB 以内的音频。' : '本机歌曲服务不可用，请检查运行终端。');
+      if (!response.ok || !response.body) throw new Error(response.status === 409 ? 'songBusy' : response.status === 413 ? 'songSize' : 'songServiceFailed');
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let pending = '';
       while (true) {
         const { value, done } = await reader.read();
         if (currentJob !== job) { await reader.cancel(); return; }
-        if (done) throw new Error('本机模型连接中断，请重新导入。');
+        if (done) throw new Error('songDisconnected');
         pending += value;
         const lines = pending.split('\n');
         pending = lines.pop()!;
@@ -218,8 +222,9 @@ async function importAudio(file: File) {
           if (!line.trim()) continue;
           const data = JSON.parse(line);
           if (data.type === 'complete') { finish(data.notes, true); return; }
-          if (data.type === 'error') throw new Error(data.message);
-          el('process-label').textContent = data.label;
+          if (data.type === 'error') throw new Error(isMessageKey(data.code) ? data.code : data.message);
+          if (isMessageKey(data.stage)) setText(el('process-label'), data.stage, { time: data.time ?? '' });
+          else setRawText(el('process-label'), String(data.label ?? ''));
           el<HTMLProgressElement>('progress').value = data.progress;
           el('percent').textContent = `${Math.round(data.progress * 100)}%`;
         }
@@ -229,7 +234,7 @@ async function importAudio(file: File) {
     worker.onmessage = ({ data }) => {
       if (currentJob !== job) return;
       if (data.type === 'progress') {
-        el('process-label').textContent = '正在识别音高、和弦与节奏…';
+        setText(el('process-label'), 'inference');
         el<HTMLProgressElement>('progress').value = data.progress;
         el('percent').textContent = `${Math.round(data.progress * 100)}%`;
       } else if (data.type === 'complete') {
@@ -245,8 +250,8 @@ async function importAudio(file: File) {
 function fail(reason: string, decoding = false) {
   console.error('Audio transcription:', reason);
   cancel();
-  el('note-count').textContent = notes.length ? `${notes.length} 个音符` : '尚无曲谱';
-  message(decoding ? '无法解码这个文件。请确认它是有效的 MP3、WAV 或其他浏览器支持的音频。' : `转谱失败，请重新导入重试。${reason}`, true);
+  setText(el('note-count'), notes.length ? 'noteCount' : 'noScore', { count: notes.length });
+  message(decoding ? (reason === 'audioTooShort' ? 'audioTooShort' : 'decodingFailed') : 'transcriptionFailed', true, { reason: errorReason(reason) });
   if (duration && !notes.length) changeMode('original');
 }
 function changeMode(next: typeof mode) {
@@ -267,11 +272,11 @@ el('demo').onclick = async () => {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   const button = el<HTMLButtonElement>('demo');
   button.disabled = true;
-  try { const response = await fetch(`${import.meta.env.BASE_URL}demo.mp3`); if (!response.ok) throw new Error(); await importAudio(new File([await response.blob()], '雨后 · 钢琴小品.mp3', { type: 'audio/mpeg' })); }
-  catch { message('示例加载失败，请重试。', true); }
+  try { const response = await fetch(`${import.meta.env.BASE_URL}demo.mp3`); if (!response.ok) throw new Error(); await importAudio(new File([await response.blob()], 'After the Rain.mp3', { type: 'audio/mpeg' })); }
+  catch { message('demoFailed', true); }
   finally { button.disabled = false; }
 };
-el('cancel').onclick = () => { cancel(); el('note-count').textContent = notes.length ? `${notes.length} 个音符` : '识别已取消'; message('已取消转谱，可以重新导入音频。'); if (duration && !notes.length) changeMode('original'); };
+el('cancel').onclick = () => { cancel(); setText(el('note-count'), notes.length ? 'noteCount' : 'cancelledCount', { count: notes.length }); message('cancelled'); if (duration && !notes.length) changeMode('original'); };
 el('play').onclick = () => void play();
 el('restart').onclick = () => void seek(0);
 el<HTMLInputElement>('seek').oninput = event => void seek(Number((event.target as HTMLInputElement).value));

@@ -32,7 +32,7 @@ export class PianoAudio {
     if (!this.loading) {
       this.loading = Promise.all(Array.from({ length: 8 }, async (_, i) => {
         const response = await fetch(`${import.meta.env.BASE_URL}piano/C${i + 1}.mp3`);
-        if (!response.ok) throw new Error('钢琴音色加载失败，请刷新后重试。');
+        if (!response.ok) throw new Error('samplesFailed');
         this.samples.set((i + 2) * 12, await ctx.decodeAudioData(await response.arrayBuffer()));
       })).then(() => {}).catch(error => { this.loading = undefined; throw error; });
     }
@@ -124,7 +124,7 @@ export class PianoAudio {
 
 export async function decodeAudio(file: File, context: AudioContext) {
   const decoded = await context.decodeAudioData(await file.arrayBuffer());
-  if (!Number.isFinite(decoded.duration) || decoded.duration < .1) throw new Error('这段音频太短了，请选择另一份文件。');
+  if (!Number.isFinite(decoded.duration) || decoded.duration < .1) throw new Error('audioTooShort');
   const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * 22050), 22050);
   const source = offline.createBufferSource();
   source.buffer = decoded;
