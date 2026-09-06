@@ -67,8 +67,6 @@ Choose a piece beside the upload button, then click **Try a demo**. Demos use th
 - **Moonlight Sonata · I — Beethoven:** the full first movement (about 5:07), from a public-domain Mutopia MIDI rendering. The longer piece takes more time to transcribe. See [audio sources and licensing](public/demos/README.md).
 - **Für Elise — Beethoven:** a complete piano performance by V. Gao (about 2:57), released under CC0. See [audio sources and licensing](public/demos/README.md).
 
-The demo area also links to **Lyphard Melody (Starry Sky) — Richard Clayderman** on Spotify. This opens external listening; the recording is not bundled or available for in-app transcription.
-
 ## Credits
 
 - Interaction reference: [Brandenburg Piano](https://brandenburg-piano.vercel.app/).

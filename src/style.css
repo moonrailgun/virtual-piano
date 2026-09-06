@@ -43,7 +43,6 @@ h1 em { font-style: normal; color: var(--accent); }
 #demo-song { min-width: 0; width: 230px; text-overflow: ellipsis; }
 .text-button { color: var(--accent); font-size: 12px; padding: 6px 0; white-space: nowrap; }
 .text-button:hover { color: #ddedd1; }
-.demo-listen { display: block; width: fit-content; max-width: 100%; margin-top: 6px; white-space: normal; line-height: 1.6; }
 .text-button > .demo-arrow { margin-left: 9px; font-size: 16px; }
 .message { color: #a6b99e; font-size: 12px; line-height: 1.8; margin: 0; }
 .message:not(:empty) { margin: -7px 0 15px; }

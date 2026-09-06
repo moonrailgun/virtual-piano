@@ -69,8 +69,6 @@ npm run test:song -- <browser-page-id> '<本地歌曲路径>'
 - **月光奏鸣曲 · 第一乐章 — 贝多芬**：约 5 分 7 秒的完整第一乐章，使用公有领域的 Mutopia MIDI 合成音频。整曲转谱需要更长时间，详见[音源与许可](public/demos/README.md)。
 - **致爱丽丝 — 贝多芬**：约 2 分 57 秒的完整钢琴演奏，由 V. Gao 演奏并以 CC0 发布，详见[音源与许可](public/demos/README.md)。
 
-示例区还提供**星空 — 理查德·克莱德曼**的 Spotify 试听入口。它会打开外部音乐页面；录音未打包进项目，不支持在应用内直接转谱。
-
 ## 来源
 
 - 交互参考：[Brandenburg Piano](https://brandenburg-piano.vercel.app/)。
