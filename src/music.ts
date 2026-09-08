@@ -4,6 +4,24 @@ export function noteName(midi: number): string {
   return `${['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'][midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
+export const numberedRows = ['qweruiop', 'asdfjkl;', 'zxcvm,./'];
+
+export function keyboardMapping(mode: 'piano' | 'numbered', tonic: number): Record<string, number> {
+  if (mode === 'piano') return { a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70, j: 71, k: 72, o: 73, l: 74, p: 75, ';': 76 };
+  const scale = [0, 2, 4, 5, 7, 9, 11, 12];
+  return Object.fromEntries(numberedRows.flatMap((row, octave) =>
+    [...row].map((key, degree) => [key, 72 + tonic - octave * 12 + scale[degree]])
+  ));
+}
+
+export function numberedNote(pitch: number, tonic: number): { degree: string; octave: number } {
+  const relative = pitch - (60 + tonic);
+  return {
+    degree: ['1', '♯1', '2', '♯2', '3', '4', '♯4', '5', '♯5', '6', '♯6', '7'][(relative % 12 + 12) % 12],
+    octave: Math.floor(relative / 12),
+  };
+}
+
 export function pianoKeys() {
   let white = 0;
   return Array.from({ length: 88 }, (_, i) => {
