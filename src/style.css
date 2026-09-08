@@ -29,8 +29,14 @@ main { max-width: 1240px; margin: auto; padding: 0 40px; }
 h1 { font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif; font-size: clamp(27px, 3.1vw, 42px); font-weight: 400; letter-spacing: 1px; margin: 0; line-height: 1.6; }
 h1 em { font-style: normal; color: var(--accent); }
 .intro-copy { flex-shrink: 0; color: #95a092; font-size: 12px; line-height: 2; margin: 0 0 7px 20px; letter-spacing: .6px; }
-.import-panel { display: flex; justify-content: space-between; align-items: center; border: 1px dashed #68806869; background: #9cb98705; border-radius: 9px; padding: 23px 26px; margin-bottom: 24px; transition: border-color .2s, background .2s; }
+.import-panel { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; border: 1px dashed #68806869; background: #9cb98705; border-radius: 9px; padding: 23px 26px; margin-bottom: 24px; transition: border-color .2s, background .2s; }
 .import-panel:hover { border-color: #9bb49b; background: #9cb98709; }
+.video-form { flex-basis: 100%; min-width: 0; margin-top: 18px; padding-top: 16px; border-top: 1px solid #a7c39318; }
+.video-form label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.video-controls { display: flex; gap: 12px; }
+.video-controls input { width: 100%; min-width: 0; background: #141b1955; color: inherit; border: 1px solid #65736570; border-radius: 5px; padding: 10px; font-size: 12px; }
+.video-controls button { flex-shrink: 0; white-space: nowrap; }
+.video-form small { display: block; color: var(--muted); font-size: 10px; line-height: 1.7; margin-top: 8px; }
 .upload-target { display: flex; align-items: center; gap: 20px; text-align: left; padding: 0; }
 .upload-icon { display: grid; place-items: center; width: 47px; height: 47px; background: #26382b; border: 1px solid #9cb98716; color: #b0c6a9; border-radius: 50%; }
 .upload-icon svg { width: 21px; height: 21px; }

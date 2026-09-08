@@ -372,6 +372,50 @@ assert.match(evaluate(status), /Transcription cancelled/);
 assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'silence');
 assert.equal(evaluate(() => document.getElementById('demo').disabled), false);
 
+// Link imports share demo download cancellation and the real audio decoder/worker.
+evaluate(() => {
+  document.getElementById('video-url').value = 'https://www.bilibili.com/video/BV1geYJ6xE5E';
+  const fetch = window.fetch;
+  window.fetch = () => { window.fetch = fetch; return Promise.resolve(Response.json({ error: 'videoIncomplete' }, { status: 422 })); };
+});
+click('#video-import');
+await until(complete);
+assert.match(evaluate(status), /incomplete audio/);
+language('zh');
+assert.match(evaluate(status), /音频不完整/);
+language('en');
+evaluate(() => {
+  const fetch = window.fetch;
+  window.fetch = () => new Promise(resolve => { window.check.releaseLink = () => { window.fetch = fetch; resolve(new Response('stale audio')); }; });
+});
+click('#video-import');
+assert.equal(evaluate(() => document.getElementById('video-import').disabled), true);
+click('#cancel');
+evaluate(() => window.check.releaseLink());
+await sleep(300);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'silence');
+assert.match(evaluate(status), /Transcription cancelled/);
+evaluate(async () => {
+  window.check.linkAudio = await (await fetch('demo.mp3')).blob();
+  const fetchOriginal = window.fetch;
+  window.fetch = () => { window.fetch = fetchOriginal; return Promise.resolve(new Response(window.check.linkAudio, { headers: { 'X-Audio-Title': encodeURIComponent('Video test') } })); };
+});
+click('#video-import');
+await until(complete);
+assert.match(evaluate(status), /Transcription complete/);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'Video test');
+assert.equal(evaluate(() => document.getElementById('export').disabled), false);
+evaluate(() => {
+  const fetch = window.fetch;
+  window.fetch = () => { window.fetch = fetch; return Promise.resolve(new Response(window.check.linkAudio, { headers: { 'X-Audio-Duration': '999', 'X-Audio-Title': 'Incomplete' } })); };
+});
+click('#video-import');
+await until(complete);
+assert.match(evaluate(status), /incomplete audio/);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'Video test');
+assert.equal(evaluate(() => document.getElementById('video-import').disabled), false);
+console.log('Video: translated errors, cancellation, audio import and incomplete decode rejection passed');
+
 for (const demo of [
   { url: 'demos/moonlight.mp3', en: 'Moonlight Sonata · I · Beethoven', zh: '月光奏鸣曲 · 第一乐章 · 贝多芬', duration: 306.67, finalBars: 290 },
   { url: 'demos/fur-elise.mp3', en: 'Für Elise · Beethoven', zh: '致爱丽丝 · 贝多芬', duration: 176.59, finalBars: 165 },

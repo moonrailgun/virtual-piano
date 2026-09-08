@@ -1,6 +1,7 @@
 import './style.css';
 import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, t, type MessageKey, type Params } from './i18n';
 import { PianoAudio, decodeAudio } from './audio';
+import { fetchAudioLink, readLinkedAudio } from './remote-audio';
 import { formatTime, keyboardMapping, numberedNote, numberedRows, noteName, pianoKeys, visibleNotes, type Note } from './music';
 
 const icons = {
@@ -28,6 +29,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <button class="upload-target" id="choose"><span class="upload-icon">${icon('upload')}</span><span><strong><span data-i18n="dropMusic"></span><span class="choose-hint" data-i18n="chooseHint"></span></strong><small data-i18n="formats"></small></span></button>
       <div class="demo-wrap"><label for="demo-song" data-i18n="demoPrompt"></label><div class="demo-controls"><select id="demo-song"><option value="demo.mp3" data-i18n="demoRain"></option><option value="demos/moonlight.mp3" data-i18n="demoMoonlight"></option><option value="demos/fur-elise.mp3" data-i18n="demoFurElise"></option></select><button class="text-button" id="demo"><span data-i18n="demo"></span><span class="demo-arrow" aria-hidden="true">↗</span></button></div></div>
       <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" hidden>
+      <form id="video-form" class="video-form"><label for="video-url" data-i18n="videoLabel"></label><div class="video-controls"><input id="video-url" type="url" required placeholder="https://www.youtube.com/watch?v=…" aria-describedby="video-hint"><button id="video-import" class="outline-button" type="submit" data-i18n="videoImport"></button></div><small id="video-hint" data-i18n="videoHint"></small></form>
     </section>
     <div class="transcription-options"><label for="transcription-mode" data-i18n="audioType"></label><select id="transcription-mode"><option value="song" data-i18n="songMode"></option><option value="instrument" data-i18n="instrumentMode"></option></select><span id="model-status" data-i18n="modelConnecting"></span></div>
     <section id="processing" class="processing" hidden>
@@ -95,11 +97,12 @@ try {
   const savedKey = Number(localStorage.getItem('echo-piano-tonic'));
   if (Number.isInteger(savedKey) && savedKey >= 0 && savedKey < 12) tonic = savedKey;
 } catch { /* Storage may be unavailable. */ }
+let modelCheck = Promise.resolve();
 if (import.meta.env.VITE_BROWSER_ONLY === '1') {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   el<HTMLSelectElement>('transcription-mode').options[0].disabled = true;
   setText(el('model-status'), 'browserOnly');
-} else fetch('/api/health').then(response => response.json()).then(data => {
+} else modelCheck = fetch('/api/health', { signal: AbortSignal.timeout(5000) }).then(response => response.json()).then(data => {
   songModelReady = data.service === 'echo-piano' && data.songMode;
   if (!songModelReady) throw new Error();
   setText(el('model-status'), 'modelReady');
@@ -211,6 +214,7 @@ async function pressKey(pitch: number) {
 function releaseKey(pitch: number) { held.get(pitch)?.stop?.(); held.delete(pitch); dirty = true; }
 function updateControls() {
   el<HTMLButtonElement>('demo').disabled = busy;
+  el<HTMLButtonElement>('video-import').disabled = busy;
   el<HTMLButtonElement>('play').disabled = busy || !duration || (mode === 'piano' && !notes.length);
   el('play').innerHTML = icon(audio.playing || starting ? 'pause' : 'play');
   setLabel(el('play'), audio.playing || starting ? 'pause' : 'play');
@@ -262,10 +266,10 @@ function finish(result: Note[], song: boolean) {
   changeMode(notes.length ? 'piano' : 'original');
   updateControls();
 }
-async function importAudio(file: File, demoTitle?: MessageKey) {
+async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration = 0, fromLink = false) {
   if (!file.size) { message('emptyFile', true); return; }
   const song = el<HTMLSelectElement>('transcription-mode').value === 'song';
-  if (song && !songModelReady) { message('songUnavailable', true); return; }
+  if (song && !songModelReady) { if (fromLink) cancel(); message('songUnavailable', true); return; }
   cancel();
   pause();
   const currentJob = job;
@@ -281,6 +285,8 @@ async function importAudio(file: File, demoTitle?: MessageKey) {
     const decoded = await decodeAudio(file, audio.context);
     decoding = false;
     if (currentJob !== job) return;
+    if (fromLink && decoded.duration > 20 * 60) throw new Error('videoTooLarge');
+    if (decoded.duration < expectedDuration - 2) throw new Error('videoIncomplete');
     if (fileUrl) URL.revokeObjectURL(fileUrl);
     fileUrl = URL.createObjectURL(file);
     audio.original.src = fileUrl;
@@ -360,31 +366,44 @@ el('choose').onclick = () => el<HTMLInputElement>('file').click();
 el<HTMLInputElement>('file').onchange = event => { const input = event.target as HTMLInputElement; if (input.files?.[0]) void importAudio(input.files[0]); input.value = ''; };
 el('demo').onclick = async () => {
   const option = el<HTMLSelectElement>('demo-song').selectedOptions[0];
-  const title = option.dataset.i18n as MessageKey;
+  await importRemote(`${import.meta.env.BASE_URL}${option.value}`, option.dataset.i18n as MessageKey);
+};
+el<HTMLFormElement>('video-form').onsubmit = event => {
+  event.preventDefault();
+  if (!busy) void importRemote(el<HTMLInputElement>('video-url').value.trim());
+};
+async function importRemote(url: string, demoTitle?: MessageKey) {
   cancel();
   pause();
   const currentJob = job;
   request = new AbortController();
   busy = true;
   el('processing').hidden = false;
-  setText(el('process-label'), 'loadingDemo');
+  setText(el('process-label'), demoTitle ? 'loadingDemo' : 'loadingVideo');
   el<HTMLProgressElement>('progress').value = 0;
   el('percent').textContent = '0%';
   setRawText(el('message'), '');
+  el('message').classList.remove('error');
   updateControls();
-  el<HTMLSelectElement>('transcription-mode').value = 'instrument';
+  if (demoTitle) el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   try {
-    const response = await fetch(`${import.meta.env.BASE_URL}${option.value}`, { signal: request.signal });
-    if (!response.ok) throw new Error();
-    const blob = await response.blob();
+    const response = demoTitle ? await fetch(url, { signal: request.signal }) : await fetchAudioLink(url, request.signal);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(isMessageKey(data.error) ? data.error : 'videoUnavailable');
+    }
+    const blob = demoTitle ? await response.blob() : await readLinkedAudio(response);
+    await modelCheck;
     if (currentJob !== job) return;
-    if (!blob.size) throw new Error();
-    el<HTMLSelectElement>('transcription-mode').value = 'instrument';
-    await importAudio(new File([blob], `${option.textContent}.mp3`, { type: 'audio/mpeg' }), title);
-  } catch {
-    if (currentJob === job) { cancel(); message('demoFailed', true); }
+    if (!blob.size) throw new Error('videoUnavailable');
+    if (demoTitle) el<HTMLSelectElement>('transcription-mode').value = 'instrument';
+    let title = demoTitle ? t(demoTitle) : response.headers.get('x-audio-title') || new URL(url).pathname.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Audio';
+    if (!demoTitle) { try { title = decodeURIComponent(title); } catch { /* A filename may contain a literal percent sign. */ } }
+    await importAudio(new File([blob], `${title}.${demoTitle ? 'mp3' : 'm4a'}`, { type: blob.type }), demoTitle, Number(response.headers.get('x-audio-duration')) || 0, !demoTitle);
+  } catch (error) {
+    if (currentJob === job) { cancel(); message(demoTitle ? 'demoFailed' : 'videoFailed', true, { reason: errorReason(error) }); }
   }
-};
+}
 el('cancel').onclick = () => { cancel(); setText(el('note-count'), notes.length ? 'noteCount' : 'cancelledCount', { count: notes.length }); message('cancelled'); if (duration && !notes.length) changeMode('original'); };
 el('play').onclick = () => void play();
 el('restart').onclick = () => void seek(0);
