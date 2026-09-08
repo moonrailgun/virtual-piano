@@ -22,6 +22,8 @@ Song mode also requires [uv](https://docs.astral.sh/uv/getting-started/installat
 
 Open the local URL printed in the terminal. Choose **Song · Melody + bass** and import a song. For clear piano, guitar, or other instrument recordings, choose **Instrument · Polyphonic**; this mode needs no Python setup and is also used by the demo. Click the keys, or use A–L and the neighboring black-key shortcuts to play. Press Space to play or pause.
 
+Switch **Play mode → Numbered score**, then **Show key map** to open a floating diagram of the physical keyboard without moving the score. The three rows are **QWER · UIOP** (high), **ASDF · JKL;** (middle), and **ZXCV · M,./** (low). Each row splits four keys per hand and plays 1–7 plus the next octave’s 1. The diagram follows the selected key and can be collapsed. Hold **Shift** to raise newly pressed notes by a semitone (Shift+A plays middle ♯1); held notes keep their pitch, so you can hold natural notes before adding shifted notes to a chord. Choose any of the 12 major keys; in C major, A plays C4, while in D major it plays D4 and D plays F♯4. The falling notes and piano keys show degrees, octave dots, and chromatic accidentals. The mode and key are saved in this browser. Changing them releases held manual notes and updates shortcuts and labels; imported pitches, playback, and MIDI exports stay unchanged. This is a numbered falling-note view, not engraved rhythmic notation.
+
 ```sh
 npm test
 npm run test:audio
@@ -48,7 +50,7 @@ Basic Pitch's older TensorFlow.js 3.x WASM `Fill` kernel cannot handle an omitte
 
 ## Browser verification
 
-`npm test` checks piano key geometry, chunk merging, seek visibility, and translation consistency. Browser checks use Orca without adding a test dependency. Open the development or preview URL in an Orca browser tab, then run:
+`npm test` checks piano key geometry, chunk merging, seek visibility, all 12 major-key mappings, octave labels, and translation consistency. Browser checks use Orca without adding a test dependency. Open the preview URL in an Orca browser tab (a fresh development server may reload while optimizing model dependencies), then run:
 
 ```sh
 npm run test:browser -- <browser-page-id>
@@ -56,6 +58,8 @@ npm run test:song -- <browser-page-id> '<local-song-path>'
 ```
 
 The browser check covers English defaults, language switching and persistence, translated errors, and switching languages during playback without losing state. It imports `public/demo.mp3`, compares the exported MIDI against 53 reference notes in `tests/demo-notes.json`, and checks transcription across chunks, piano audio output, playback, pause, seeking, original audio, cancellation, corrupt files, and silence. It also checks demo download failures and cancellation, then transcribes and plays the full Moonlight first movement and Für Elise. It reloads the specified test page.
+
+Numbered-mode checks cover transposed audio, black-key shortcuts, octave dots, held-note release when changing key, input focus, saved preferences, and unchanged MIDI and playback.
 
 `test:song` uploads the specified song through the browser and checks that cancellation stops the model process, re-importing works, transcription completes, both monophonic tracks are present, and piano playback produces an audio signal. It verifies the processing flow. Musical fidelity still needs listening comparison with the original; note counts and a nonzero signal cannot establish it.
 
