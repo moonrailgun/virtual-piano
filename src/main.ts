@@ -524,3 +524,8 @@ requestAnimationFrame(draw);
 // Centre the playable computer-keyboard octave on narrow screens.
 centerKeyboard();
 updateControls();
+const importUrl = new URLSearchParams(location.search).get('importUrl')?.trim();
+if (importUrl) {
+  el<HTMLInputElement>('video-url').value = importUrl;
+  void importRemote(importUrl);
+}

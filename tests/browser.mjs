@@ -467,3 +467,27 @@ await until(() => !!document.getElementById('major-key'), 10000);
 assert.equal(evaluate(() => document.getElementById('score-piano').getAttribute('aria-pressed')), 'true');
 assert.equal(evaluate(() => document.getElementById('major-key').value), '0');
 console.log('Preferences: language and notation persistence, invalid fallback, restored tonic visibility passed');
+
+// A fresh page must import without a click, preserving the source URL's own query.
+const audioUrl = evaluate(() => {
+  const source = new URL('demo.mp3', location.href);
+  source.search = new URLSearchParams({ source: 'auto', token: 'a&b' });
+  history.replaceState(null, '', `?${new URLSearchParams({ importUrl: source.href })}`);
+  return source.href;
+});
+orca('reload');
+await until(() => !!document.getElementById('processing'), 10000);
+await until(complete);
+assert.match(evaluate(status), /Transcription complete/);
+assert.equal(evaluate(() => document.getElementById('song-name').textContent), 'demo');
+assert.equal(evaluate(() => document.getElementById('video-url').value), audioUrl);
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), 'Play');
+assert.equal(evaluate(() => document.getElementById('export').disabled), false);
+evaluate(() => history.replaceState(null, '', '?importUrl=javascript%3Aalert(1)'));
+orca('reload');
+await until(() => !!document.getElementById('processing'), 10000);
+await until(complete);
+assert.match(evaluate(status), /HTTP or HTTPS/);
+assert.equal(evaluate(() => document.getElementById('video-import').disabled), false);
+evaluate(() => history.replaceState(null, '', location.pathname));
+console.log('Auto import: fresh-page audio, nested URL parameters, no autoplay and invalid URL recovery passed');
