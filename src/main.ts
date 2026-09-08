@@ -1,7 +1,7 @@
 import './style.css';
-import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, type MessageKey, type Params } from './i18n';
+import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, t, type MessageKey, type Params } from './i18n';
 import { PianoAudio, decodeAudio } from './audio';
-import { formatTime, noteName, pianoKeys, visibleNotes, type Note } from './music';
+import { formatTime, keyboardMapping, numberedNote, numberedRows, noteName, pianoKeys, visibleNotes, type Note } from './music';
 
 const icons = {
   play: '<path d="m9 5 11 7-11 7z" fill="currentColor" stroke="none"/>',
@@ -39,6 +39,15 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <div class="song-info"><span class="record-icon">${icon('music')}</span><div><p class="eyebrow" data-i18n="scoreEyebrow"></p><h2 id="song-name" data-i18n="emptySong"></h2></div></div>
         <div class="score-actions"><span class="note-count" id="note-count" data-i18n="emptyCount"></span><button id="export" class="outline-button" disabled>${icon('download')}<span data-i18n="export"></span></button></div>
       </div>
+      <div class="notation-toolbar">
+        <span data-i18n="notationMode"></span>
+        <div class="listen-mode notation-mode" role="group" data-i18n-label="notationMode"><button id="score-piano" data-i18n="pianoNotation" aria-pressed="true"></button><button id="score-numbered" data-i18n="numberedNotation" aria-pressed="false"></button></div>
+        <label id="key-control" hidden><span>1 =</span><select id="major-key" data-i18n-label="majorKey">${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'].map((key, value) => `<option value="${value}" data-i18n="majorOption" data-i18n-params='${JSON.stringify({ key })}'></option>`).join('')}</select></label>
+      </div>
+      <details class="numbered-guide" id="numbered-guide" hidden>
+        <summary class="outline-button"><span class="guide-show" data-i18n="showKeymap"></span><span class="guide-hide" data-i18n="hideKeymap"></span><span class="guide-chevron" aria-hidden="true">⌄</span></summary>
+        <div class="keymap-panel"><div class="keymap-hands"><span data-i18n="leftHand"></span><span data-i18n="rightHand"></span></div><div class="keymap-scroll" tabindex="0" role="region" data-i18n-label="showKeymap"><div id="keymap"></div></div><p class="keymap-shift"><kbd>Shift</kbd><span data-i18n="shiftExample"></span></p><small data-i18n="numberedHint"></small></div>
+      </details>
       <div class="piano-scroll" id="piano-scroll">
         <div class="piano-surface">
           <div class="roll"><canvas id="roll" role="img" data-i18n-label="roll"></canvas><div class="roll-empty" id="empty"><span class="empty-glyph">♫</span><strong data-i18n="emptyTitle"></strong><span data-i18n="emptyHint"></span></div><div class="roll-label"><span class="dot bass"></span><span data-i18n="bass"></span><span class="dot treble"></span><span data-i18n="treble"></span></div><span class="time-guide" data-i18n="playhead"></span></div>
@@ -51,7 +60,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <div class="audio-settings"><label class="speed-label"><span class="sr-only" data-i18n="speed"></span><select id="speed" data-i18n-label="speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected data-i18n="normalSpeed"></option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label><label class="volume-label">${icon('sound')}<span class="sr-only" data-i18n="volume"></span><input type="range" id="volume" min="0" max="1" step="0.01" value="0.65" data-i18n-label="volume"></label></div></div>
         <input type="range" id="seek" min="0" max="1" step="0.01" value="0" data-i18n-label="seek" disabled>
       </div>
-      <div class="instrument-footer"><span><span class="live-dot"></span><span id="instrument-status" data-i18n="pianoReady"></span></span><span class="desktop-hint"><span data-i18n="clickKeys"></span><span class="footer-separator">·</span><kbd>A</kbd>–<kbd>L</kbd> <span data-i18n="whiteKeys"></span><span class="footer-separator">·</span><kbd data-i18n="space"></kbd> <span data-i18n="playPause"></span></span><span class="mobile-hint" data-i18n="mobileHint"></span></div>
+      <div class="instrument-footer"><span><span class="live-dot"></span><span id="instrument-status" data-i18n="pianoReady"></span></span><span class="desktop-hint"><span data-i18n="clickKeys"></span><span id="piano-shortcuts"><span class="footer-separator">·</span><kbd>A</kbd>–<kbd>L</kbd> <span data-i18n="whiteKeys"></span></span><span class="footer-separator">·</span><kbd data-i18n="space"></kbd> <span data-i18n="playPause"></span></span><span class="mobile-hint" data-i18n="mobileHint"></span></div>
     </section>
     <footer class="page-footer"><p data-i18n="footer"></p><span data-i18n="limitations"></span><a href="./piano/README.txt" target="_blank" rel="noopener" data-i18n="sampleCredit"></a></footer>
   </main>
@@ -61,7 +70,7 @@ applyTranslations();
 
 function el<T extends HTMLElement = HTMLElement>(id: string) { return document.getElementById(id) as T; }
 el<HTMLSelectElement>('language').value = locale;
-el<HTMLSelectElement>('language').onchange = event => { setLocale((event.target as HTMLSelectElement).value); applyTranslations(); };
+el<HTMLSelectElement>('language').onchange = event => { setLocale((event.target as HTMLSelectElement).value); applyTranslations(); renderNotation(); };
 const audio = new PianoAudio();
 const keys = pianoKeys();
 let notes: Note[] = [];
@@ -78,6 +87,14 @@ let busy = false;
 let starting = false;
 let dirty = true;
 const held = new Map<number, { stop?: () => void }>();
+const pressed = new Map<string, number>();
+let notation: 'piano' | 'numbered' = 'piano';
+let tonic = 0;
+try {
+  if (localStorage.getItem('echo-piano-notation') === 'numbered') notation = 'numbered';
+  const savedKey = Number(localStorage.getItem('echo-piano-tonic'));
+  if (Number.isInteger(savedKey) && savedKey >= 0 && savedKey < 12) tonic = savedKey;
+} catch { /* Storage may be unavailable. */ }
 if (import.meta.env.VITE_BROWSER_ONLY === '1') {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   el<HTMLSelectElement>('transcription-mode').options[0].disabled = true;
@@ -90,7 +107,7 @@ if (import.meta.env.VITE_BROWSER_ONLY === '1') {
   el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   setText(el('model-status'), 'modelMissing');
 });
-const computerKeys: Record<string, number> = { a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70, j: 71, k: 72, o: 73, l: 74, p: 75, ';': 76 };
+let computerKeys = keyboardMapping(notation, tonic);
 const keyboard = el('keyboard');
 for (const key of keys) {
   const button = document.createElement('button');
@@ -98,10 +115,8 @@ for (const key of keys) {
   button.dataset.midi = String(key.midi);
   button.style.left = `${key.left / 52 * 100}%`;
   button.style.width = `${key.width / 52 * 100}%`;
-  button.setAttribute('aria-label', noteName(key.midi));
   button.setAttribute('aria-pressed', 'false');
-  const shortcut = Object.keys(computerKeys).find(k => computerKeys[k] === key.midi);
-  button.innerHTML = `<span class="key-label">${key.midi % 12 === 0 ? noteName(key.midi) : ''}</span><span class="key-shortcut">${shortcut?.toUpperCase() ?? ''}</span>`;
+  button.innerHTML = '<span class="key-label"></span><span class="key-shortcut"></span>';
   button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); pressKey(key.midi); });
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(event, () => releaseKey(key.midi));
   button.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); pressKey(key.midi); } });
@@ -110,6 +125,79 @@ for (const key of keys) {
   keyboard.append(button);
 }
 const keyElements = Array.from(keyboard.children) as HTMLButtonElement[];
+
+function renderNotation() {
+  const numbered = notation === 'numbered';
+  computerKeys = keyboardMapping(notation, tonic);
+  keyboard.parentElement!.classList.toggle('numbered', numbered);
+  el('key-control').hidden = el('numbered-guide').hidden = !numbered;
+  el('piano-shortcuts').hidden = numbered;
+  el<HTMLSelectElement>('major-key').value = String(tonic);
+  setLabel(el('roll'), numbered ? 'numberedRoll' : 'roll');
+  setText(document.querySelector('.song-info .eyebrow')!, numbered ? 'numberedEyebrow' : 'scoreEyebrow');
+  for (const option of ['piano', 'numbered']) {
+    el(`score-${option}`).classList.toggle('selected', option === notation);
+    el(`score-${option}`).setAttribute('aria-pressed', String(option === notation));
+  }
+  keyElements.forEach(button => {
+    const pitch = Number(button.dataset.midi);
+    const shortcut = Object.keys(computerKeys).filter(key => computerKeys[key] === pitch).join(' ').toUpperCase();
+    const label = button.querySelector<HTMLElement>('.key-label')!;
+    const { degree, octave } = numberedNote(pitch, tonic);
+    label.textContent = numbered ? degree : pitch % 12 === 0 ? noteName(pitch) : '';
+    label.dataset.above = numbered && octave > 0 ? Array(octave).fill('·').join('\n') : '';
+    label.dataset.below = numbered && octave < 0 ? Array(-octave).fill('·').join('\n') : '';
+    button.classList.toggle('chromatic', numbered && degree.startsWith('♯'));
+    button.classList.toggle('mapped', !!shortcut);
+    button.classList.toggle('shared-shortcut', shortcut.length > 1);
+    button.querySelector('.key-shortcut')!.textContent = shortcut;
+    button.setAttribute('aria-label', `${noteName(pitch)}${numbered ? ` · ${t('numberedKeyLabel', { degree, octave: octave > 0 ? `+${octave}` : octave })}` : ''}${shortcut ? ` · ${shortcut}` : ''}`);
+  });
+  if (numbered) {
+    const rows: (string | [string, number])[][] = [
+      [...'`1234567890-=', ['⌫', 8]],
+      [['Tab', 6], ...'qwertyuiop[]', ['\\', 6]],
+      [['Caps', 7], ..."asdfghjkl;'", ['Enter', 9]],
+      [['Shift', 9], ...'zxcvbnm,./', ['Shift', 11]],
+      [['Ctrl', 5], ['⌘', 5], ['Alt', 5], ['Space', 25], ['Alt', 5], ['⌘', 5], ['Fn', 5], ['Ctrl', 5]],
+    ];
+    el('keymap').innerHTML = rows.map((row, index) => `<div class="keymap-row"${index > 0 && index < 4 ? ` role="group" aria-label="${t((['highOctave', 'middleOctave', 'lowOctave'] as const)[index - 1])}"` : ''}>${row.map(item => {
+      const [key, units] = typeof item === 'string' ? [item, 4] : item;
+      const pitch = computerKeys[key];
+      const mapped = pitch !== undefined;
+      const hand = numberedRows.some(row => row.slice(0, 4).includes(key)) ? 'left' : 'right';
+      const { degree, octave } = numberedNote(pitch ?? 60, tonic);
+      return `<kbd class="keymap-key${mapped ? ` keymap-${hand}` : ''}" style="--units:${units}"${mapped ? ` data-shortcut="${key}"` : ''}><span>${key.length === 1 ? key.toUpperCase() : key}</span>${mapped ? `<b class="keymap-degree" data-above="${Array(Math.max(0, octave)).fill('·').join('\n')}" data-below="${Array(Math.max(0, -octave)).fill('·').join('\n')}" aria-label="${t('numberedKeyLabel', { degree, octave })}">${degree}</b><small>${noteName(pitch)}</small>` : ''}</kbd>`;
+    }).join('')}</div>`).join('');
+  }
+  dirty = true;
+}
+function releaseManualKeys() {
+  for (const pitch of held.keys()) releaseKey(pitch);
+  pressed.clear();
+}
+function changeNotation(next: typeof notation, key = tonic) {
+  releaseManualKeys();
+  notation = next;
+  tonic = key;
+  renderNotation();
+  try {
+    localStorage.setItem('echo-piano-notation', notation);
+    localStorage.setItem('echo-piano-tonic', String(tonic));
+  } catch { /* Keep the in-memory preference. */ }
+  centerKeyboard();
+}
+function centerKeyboard() {
+  const middle = keys[60 + (notation === 'numbered' ? tonic : 0) - 21];
+  el('piano-scroll').scrollLeft = (middle.left + middle.width / 2) / 52 * keyboard.clientWidth - el('piano-scroll').clientWidth / 2;
+}
+el('score-piano').onclick = () => changeNotation('piano');
+el('score-numbered').onclick = () => changeNotation('numbered');
+el<HTMLSelectElement>('major-key').onchange = event => {
+  const key = Number((event.target as HTMLSelectElement).value);
+  if (Number.isInteger(key) && key >= 0 && key < 12) changeNotation(notation, key);
+};
+renderNotation();
 
 function message(key: MessageKey, error = false, params: Params = {}) { setText(el('message'), key, params); el('message').classList.toggle('error', error); }
 async function pressKey(pitch: number) {
@@ -331,12 +419,23 @@ window.addEventListener('drop', event => { event.preventDefault(); dragDepth = 0
 window.addEventListener('keydown', event => {
   const target = event.target;
   if (target instanceof HTMLElement && (/INPUT|SELECT|TEXTAREA/.test(target.tagName) || target.isContentEditable)) return;
-  if (event.code === 'Space' && !(target instanceof HTMLButtonElement)) { event.preventDefault(); if (!event.repeat) void play(); }
-  const pitch = computerKeys[event.key.toLowerCase()];
-  if (pitch && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); void pressKey(pitch); }
+  if (event.code === 'Space' && !(target instanceof HTMLButtonElement) && !(target instanceof HTMLElement && target.closest('summary'))) { event.preventDefault(); if (!event.repeat) void play(); }
+  const punctuation: Record<string, string> = { Semicolon: ';', Comma: ',', Period: '.', Slash: '/' };
+  const key = event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : punctuation[event.code] ?? event.key.toLowerCase();
+  const pitch = computerKeys[key];
+  if (pitch && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    const playedPitch = pitch + Number(notation === 'numbered' && event.shiftKey);
+    if (!event.repeat && !pressed.has(event.code || event.key.toLowerCase())) { pressed.set(event.code || event.key.toLowerCase(), playedPitch); void pressKey(playedPitch); }
+  }
 });
-window.addEventListener('keyup', event => { const pitch = computerKeys[event.key.toLowerCase()]; if (pitch) releaseKey(pitch); });
-window.addEventListener('blur', () => { for (const pitch of held.keys()) releaseKey(pitch); dragDepth = 0; el('drop-overlay').hidden = true; });
+window.addEventListener('keyup', event => {
+  const key = event.code || event.key.toLowerCase();
+  const pitch = pressed.get(key);
+  pressed.delete(key);
+  if (pitch && ![...pressed.values()].includes(pitch)) releaseKey(pitch);
+});
+window.addEventListener('blur', () => { releaseManualKeys(); dragDepth = 0; el('drop-overlay').hidden = true; });
 
 const canvas = el<HTMLCanvasElement>('roll');
 const ctx = canvas.getContext('2d')!;
@@ -389,11 +488,20 @@ function draw() {
     ctx.globalAlpha = .6 + note.velocity * .4;
     ctx.beginPath(); ctx.roundRect(x, top, Math.max(w, 3), Math.max(bottom - top - 2, 4), 3); ctx.fill();
     ctx.globalAlpha = 1;
-    if (w > 12 && bottom - top > 22) { ctx.fillStyle = '#22342b'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(noteName(note.pitch), x + w / 2, Math.max(top + 13, 12)); ctx.textAlign = 'left'; }
+    if (w > 10 && Math.min(bottom, height) - Math.max(top, 0) > 22) {
+      ctx.fillStyle = '#22342b'; ctx.font = notation === 'numbered' ? '11px sans-serif' : '9px sans-serif'; ctx.textAlign = 'center';
+      const { degree, octave } = numberedNote(note.pitch, tonic);
+      const y = Math.max(top + 13, 12) + (notation === 'numbered' ? Math.max(octave, 0) * 3 : 0);
+      ctx.fillText(notation === 'numbered' ? degree : noteName(note.pitch), x + w / 2, y, w);
+      if (notation === 'numbered') for (let dot = 0; dot < Math.abs(octave); dot++) {
+        ctx.beginPath(); ctx.arc(x + w / 2, y + (octave > 0 ? -12 - dot * 3 : 4 + dot * 3), 1, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.textAlign = 'left';
+    }
   }
   keyElements.forEach((key, index) => { const on = active.has(index + 21); key.classList.toggle('active', on); key.classList.toggle('low', index + 21 < 60); key.setAttribute('aria-pressed', String(on)); });
 }
 requestAnimationFrame(draw);
 // Centre the playable computer-keyboard octave on narrow screens.
-el('piano-scroll').scrollLeft = Math.max(0, (keyboard.clientWidth - el('piano-scroll').clientWidth) * .52);
+centerKeyboard();
 updateControls();

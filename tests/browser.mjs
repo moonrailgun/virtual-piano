@@ -29,7 +29,7 @@ const status = () => document.getElementById('message').textContent;
 function language(value) {
   evaluate(value => { const select = document.getElementById('language'); select.value = value; select.dispatchEvent(new Event('change')); }, value);
 }
-evaluate(() => localStorage.removeItem('echo-piano-language'));
+evaluate(() => ['language', 'notation', 'tonic'].forEach(key => localStorage.removeItem(`echo-piano-${key}`)));
 orca('reload');
 await until(() => !!document.getElementById('language'), 10000);
 assert.equal(evaluate(() => document.documentElement.lang), 'en');
@@ -58,12 +58,115 @@ evaluate(() => {
     return compressor;
   };
   const start = AudioBufferSourceNode.prototype.start;
-  AudioBufferSourceNode.prototype.start = function (...args) { window.check.strikes++; return start.apply(this, args); };
+  AudioBufferSourceNode.prototype.start = function (...args) { window.check.strikes++; window.check.lastSource = this; return start.apply(this, args); };
   const url = URL.createObjectURL;
   URL.createObjectURL = function (blob) { if (blob.type === 'audio/midi') window.check.midi = blob; return url.call(this, blob); };
   const click = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function () { if (!this.download) click.call(this); };
 });
+
+assert.equal(evaluate(() => document.getElementById('numbered-guide').hidden), true);
+click('#score-numbered');
+assert.equal(evaluate(() => document.getElementById('numbered-guide').open), false, 'The key map starts collapsed');
+const scoreLayout = evaluate(() => [document.getElementById('piano-scroll').offsetTop, document.querySelector('.instrument').offsetHeight]);
+click('#numbered-guide summary');
+assert.equal(evaluate(() => document.getElementById('numbered-guide').open), true);
+assert.deepEqual(evaluate(() => [document.getElementById('piano-scroll').offsetTop, document.querySelector('.instrument').offsetHeight]), scoreLayout, 'Opening the floating map must not move or resize the score');
+assert.deepEqual(evaluate(() => [...document.querySelectorAll('.keymap-row')].map(row => [...row.querySelectorAll('[data-shortcut]')].map(key => key.dataset.shortcut).join('')).filter(Boolean)), ['qweruiop', 'asdfjkl;', 'zxcvm,./']);
+assert.equal(evaluate(() => document.querySelectorAll('.keymap-key').length), 61, 'Draw the full keyboard main block, including unused keys');
+assert.equal(evaluate(() => {
+  const keys = [...document.querySelectorAll('.keymap-key')];
+  const rect = label => keys.find(key => key.firstElementChild.textContent === label).getBoundingClientRect();
+  return rect('Q').x < rect('A').x && rect('A').x < rect('Z').x && rect('⌫').width > rect('Q').width * 1.8 && rect('Space').width > rect('Q').width * 5;
+}), true, 'Use staggered letter rows and wide modifier keys');
+assert.equal(evaluate(() => {
+  const key = document.querySelector('.keymap-key[data-shortcut="q"]').getBoundingClientRect();
+  return Math.abs(key.width - key.height) < 1 && [...document.querySelectorAll('.keymap-key')].every(button => Math.abs(button.getBoundingClientRect().height - key.height) < 1);
+}), true, 'Standard keys must be square and every row must use the same key height');
+assert.equal(evaluate(() => document.querySelector('.keymap-key[data-shortcut="p"] b').dataset.above), '·\n·');
+assert.equal(evaluate(() => document.querySelector('.keymap-key[data-shortcut="/"] b').dataset.below), '');
+evaluate(() => { const select = document.getElementById('major-key'); select.value = '2'; select.dispatchEvent(new Event('change')); });
+assert.deepEqual(evaluate(() => ['a', 'j', 'l', ';'].map(key => document.querySelector(`.keymap-key[data-shortcut="${key}"] small`).textContent)), ['D4', 'A4', 'C♯5', 'D5']);
+language('zh');
+assert.match(evaluate(() => document.querySelector('#numbered-guide summary').innerText), /收起键位图/);
+assert.equal(evaluate(() => document.getElementById('numbered-guide').open), true);
+language('en');
+// Native keypress delivery requires desktop focus; check that our handler leaves
+// the summary's native Space action intact even in a background test tab.
+assert.equal(evaluate(() => document.querySelector('#numbered-guide summary').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }))), true, 'Space on the key map must not be captured by playback');
+click('#numbered-guide summary');
+assert.equal(evaluate(() => document.getElementById('numbered-guide').open), false);
+evaluate(() => { const select = document.getElementById('major-key'); select.value = '0'; select.dispatchEvent(new Event('change')); });
+
+// Shift changes only new numbered notes; keyup must release the original pitch.
+evaluate(() => {
+  window.check.key = (type, key, shiftKey = false) => {
+    const punctuation = { ';': ['Semicolon', ':'], ',': ['Comma', '<'], '.': ['Period', '>'], '/': ['Slash', '?'] };
+    window.dispatchEvent(new KeyboardEvent(type, { key: shiftKey ? punctuation[key]?.[1] ?? key.toUpperCase() : key, code: punctuation[key]?.[0] ?? `Key${key.toUpperCase()}`, shiftKey }));
+  };
+  window.check.key('keydown', 'a');
+  window.check.key('keydown', 'j');
+});
+await until(() => window.check.strikes >= 2, 10000);
+evaluate(() => window.check.key('keydown', 's', true));
+await until(() => window.check.strikes >= 3, 5000);
+assert.ok(Math.abs(evaluate(() => window.check.lastSource.playbackRate.value) - 2 ** (3 / 12)) < .0001, 'Shift+S must sound D♯4 in C major');
+assert.deepEqual(evaluate(async () => { await new Promise(requestAnimationFrame); return [...document.querySelectorAll('.key.active')].map(key => Number(key.dataset.midi)); }), [60, 63, 67], 'Adding a shifted note must preserve held natural notes');
+assert.equal(evaluate(async () => {
+  let ended = false;
+  window.check.lastSource.addEventListener('ended', () => { ended = true; });
+  window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft' }));
+  window.check.key('keyup', 's');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  await new Promise(requestAnimationFrame);
+  return ended && !document.querySelector('[data-midi="63"]').classList.contains('active');
+}), true, 'Releasing Shift before the note must not leave it sounding');
+evaluate(() => { window.check.key('keyup', 'a'); window.check.key('keyup', 'j'); window.check.key('keydown', 'd', true); });
+await until(() => window.check.strikes >= 4, 5000);
+assert.equal(evaluate(async () => {
+  let ended = false;
+  window.check.lastSource.addEventListener('ended', () => { ended = true; });
+  window.check.key('keydown', 'f'); // Shift+3 and 4 share a pitch.
+  window.check.key('keyup', 'd');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  await new Promise(requestAnimationFrame);
+  const sustained = !ended && document.querySelector('[data-midi="65"]').classList.contains('active');
+  window.check.key('keyup', 'f', true);
+  await new Promise(resolve => setTimeout(resolve, 250));
+  return sustained && ended;
+}), true, 'A shared pitch must sustain until both physical keys are released');
+evaluate(() => { window.check.key('keydown', 'q', true); window.check.key('keydown', 'z', true); });
+await until(() => window.check.strikes >= 6, 5000);
+assert.deepEqual(evaluate(async () => { await new Promise(requestAnimationFrame); return [...document.querySelectorAll('.key.active')].map(key => Number(key.dataset.midi)); }), [49, 73]);
+evaluate(() => window.dispatchEvent(new Event('blur')));
+assert.equal(evaluate(async () => { await new Promise(requestAnimationFrame); return document.querySelectorAll('.key.active').length; }), 0);
+assert.equal(evaluate(async () => {
+  window.check.key('keydown', 'a');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  let ended = false;
+  window.check.lastSource.addEventListener('ended', () => { ended = true; });
+  window.check.key('keydown', '/');
+  window.check.key('keyup', 'a');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  await new Promise(requestAnimationFrame);
+  const sustained = !ended && document.querySelector('[data-midi="60"]').classList.contains('active');
+  window.check.key('keyup', '/');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  return sustained && ended;
+}), true, 'The low-row final tonic must sustain the same note as middle A');
+evaluate(() => [';', ',', '.', '/'].forEach(key => window.check.key('keydown', key, true)));
+await until(() => document.querySelectorAll('.key.active').length === 4, 5000);
+assert.deepEqual(evaluate(() => [...document.querySelectorAll('.key.active')].map(key => Number(key.dataset.midi))), [58, 60, 61, 73], 'Shift must work with the physical punctuation keys');
+evaluate(() => [';', ',', '.', '/'].forEach(key => window.check.key('keyup', key)));
+assert.equal(evaluate(async () => { await new Promise(requestAnimationFrame); return document.querySelectorAll('.key.active').length; }), 0);
+click('#score-piano');
+const pianoStrikes = evaluate(() => { const before = window.check.strikes; window.check.key('keydown', 'a', true); return before; });
+await until(() => document.querySelector('[data-midi="60"]').classList.contains('active'), 5000);
+assert.ok(evaluate(() => window.check.strikes) > pianoStrikes);
+assert.equal(evaluate(() => window.check.lastSource.playbackRate.value), 1, 'Shift must preserve piano-mode shortcuts');
+evaluate(() => window.check.key('keyup', 'a'));
+console.log('Key map and keyboard: native disclosure, translations, tuning, two-hand layout, Shift audio, punctuation, shared notes and releases passed');
+if (process.argv.includes('--keyboard-only')) process.exit(0);
 
 // The file picker path must reject corrupt input and recover for the next upload.
 evaluate(() => {
@@ -164,6 +267,61 @@ assert.ok(evaluate(() => window.check.strikes) > strikes, 'Keyboard shortcuts mu
 evaluate(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', bubbles: true })));
 console.log('Playback: audible piano signal, active keys, pause, seek, speed, original audio, restart, manual keys passed');
 
+// Numbered shortcuts must move to the actual pitches, including black keys.
+click('#score-numbered');
+assert.deepEqual(evaluate(() => {
+  const shortcut = key => Number([...document.querySelectorAll('.key')].find(button => button.querySelector('.key-shortcut').textContent.split(' ').includes(key)).dataset.midi);
+  return ['A', 'S', 'Q', 'Z'].map(shortcut);
+}), [60, 62, 72, 48]);
+assert.equal(evaluate(() => document.querySelector('[data-midi="72"] .key-label').dataset.above), '·');
+assert.equal(evaluate(() => document.querySelector('[data-midi="48"] .key-label').dataset.below), '·');
+assert.equal(evaluate(() => document.querySelector('[data-midi="61"] .key-label').textContent), '♯1');
+evaluate(() => {
+  const select = document.getElementById('major-key'); select.value = '2'; select.dispatchEvent(new Event('change'));
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA' }));
+});
+await until(() => window.check.lastSource.playbackRate.value > 1.1 && document.querySelector('[data-midi="62"]').classList.contains('active'), 5000);
+assert.ok(Math.abs(evaluate(() => window.check.lastSource.playbackRate.value) - 2 ** (2 / 12)) < .0001, 'A must sound D4 in D major');
+assert.equal(evaluate(() => document.querySelector('[data-midi="66"] .key-shortcut').textContent), 'D');
+assert.equal(evaluate(() => document.querySelector('[data-midi="73"] .key-label').dataset.above), '', 'D-major degree 7 stays in the middle octave');
+assert.equal(evaluate(async () => {
+  let ended = false;
+  window.check.lastSource.addEventListener('ended', () => { ended = true; });
+  const select = document.getElementById('major-key'); select.value = '11'; select.dispatchEvent(new Event('change'));
+  const strikes = window.check.strikes;
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', repeat: true }));
+  await new Promise(resolve => setTimeout(resolve, 250));
+  window.dispatchEvent(new KeyboardEvent('keyup', { key: 'A', code: 'KeyA' }));
+  await new Promise(requestAnimationFrame);
+  return ended && window.check.strikes === strikes && !document.querySelector('[data-midi="62"]').classList.contains('active') && !document.querySelector('[data-midi="71"]').classList.contains('active');
+}), true, 'Changing key must stop held notes and ignore repeats until keyup');
+assert.equal(evaluate(() => document.querySelector('[data-midi="73"] .key-label').dataset.above), '', 'B-major degree 2 stays in the middle octave');
+assert.equal(evaluate(async () => {
+  const input = document.getElementById('major-key'); input.focus();
+  const before = window.check.strikes;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', code: 'KeyQ', bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 50));
+  return window.check.strikes === before;
+}), true, 'Typing in a select must not play notes');
+language('zh');
+assert.equal(evaluate(() => document.getElementById('score-numbered').textContent), '简谱');
+assert.match(evaluate(() => document.querySelector('[data-midi="71"]').getAttribute('aria-label')), /简谱 1/);
+language('en');
+evaluate(() => { window.check.midi = null; });
+click('#export');
+await until(() => !!window.check.midi);
+assert.deepEqual(evaluate(async () => Array.from(new Uint8Array(await window.check.midi.arrayBuffer()))), bytes, 'Notation changes must preserve exported absolute pitches and timing');
+click('#piano-mode');
+click('#play');
+await until(() => Number(document.getElementById('seek').value) > .5, 5000);
+const notationPosition = evaluate(() => Number(document.getElementById('seek').value));
+click('#score-piano');
+assert.equal(evaluate(() => document.getElementById('play').getAttribute('aria-label')), 'Pause');
+assert.ok(evaluate(() => Number(document.getElementById('seek').value)) >= notationPosition);
+assert.equal(evaluate(() => document.querySelector('[data-midi="61"] .key-shortcut').textContent), 'W');
+click('#play');
+console.log('Numbered mode: octave dots, accidentals, transposed sound, held-note release, focus guards, translations and unchanged MIDI/playback passed');
+
 // Silence must remain silence, including after replacing a valid score.
 evaluate(() => {
   const bytes = new ArrayBuffer(44 + 22050 * 2);
@@ -247,4 +405,21 @@ for (const demo of [
   console.log(`Demo ${demo.en}: full transcription, translated title, MIDI export and audible playback passed in ${((Date.now() - demoStarted) / 1000).toFixed(1)}s`);
 }
 
-console.log('Languages: English default, persisted Chinese, invalid preference fallback, live progress/error/playback translation passed');
+click('#score-numbered');
+evaluate(() => { const select = document.getElementById('major-key'); select.value = '11'; select.dispatchEvent(new Event('change')); });
+orca('reload');
+await until(() => !!document.getElementById('major-key'), 10000);
+assert.equal(evaluate(() => document.getElementById('score-numbered').getAttribute('aria-pressed')), 'true');
+assert.equal(evaluate(() => document.getElementById('major-key').value), '11');
+assert.equal(evaluate(() => document.querySelector('[data-midi="71"] .key-shortcut').textContent), 'A /');
+assert.ok(evaluate(() => {
+  const key = document.querySelector('[data-midi="71"]').getBoundingClientRect();
+  const scroll = document.getElementById('piano-scroll').getBoundingClientRect();
+  return key.left >= scroll.left && key.right <= scroll.right;
+}), 'The restored middle tonic must be visible');
+evaluate(() => { localStorage.setItem('echo-piano-notation', 'invalid'); localStorage.setItem('echo-piano-tonic', '99'); });
+orca('reload');
+await until(() => !!document.getElementById('major-key'), 10000);
+assert.equal(evaluate(() => document.getElementById('score-piano').getAttribute('aria-pressed')), 'true');
+assert.equal(evaluate(() => document.getElementById('major-key').value), '0');
+console.log('Preferences: language and notation persistence, invalid fallback, restored tonic visibility passed');

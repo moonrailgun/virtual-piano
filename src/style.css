@@ -65,6 +65,44 @@ h2 { font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif; font-size: 19px;
 .outline-button svg { width: 14px; height: 14px; }.outline-button:not(:disabled):hover { background: #a8bb9814; border-color: #a8bb9877; }
 .piano-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #61705d #1a221e; }
 .piano-surface { min-width: 740px; }
+.notation-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 25px 16px; color: #a0ad9a; font-size: 11px; }
+.notation-toolbar .notation-mode { order: initial; margin: 0; }
+.notation-toolbar label { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--gold); }
+#major-key { border: 1px solid #65736570; border-radius: 5px; padding: 7px; }
+.numbered-guide { position: relative; padding: 0 25px 16px; color: #aeba9e; }
+.numbered-guide summary { width: fit-content; cursor: pointer; list-style: none; }
+.numbered-guide summary::-webkit-details-marker { display: none; }
+.numbered-guide summary:focus-visible { outline: 2px solid #b4d4b6; outline-offset: 4px; }
+.guide-hide, .numbered-guide[open] .guide-show { display: none; }.numbered-guide[open] .guide-hide { display: inline; }
+.guide-chevron { margin-left: 8px; }.numbered-guide[open] .guide-chevron { transform: rotate(180deg); }
+.keymap-panel { position: absolute; top: calc(100% - 6px); left: 25px; z-index: 5; width: min(900px, calc(100% - 50px)); padding: 18px; border: 1px solid #6d8064; border-radius: 10px; background: #1b251e; box-shadow: 0 20px 50px #0009, 0 2px 8px #0006; }
+.keymap-hands { display: grid; grid-template-columns: 1fr 1fr; margin: 0 15% 12px 10%; font-size: 11px; color: var(--accent); }.keymap-hands span:last-child { color: var(--gold); }
+.keymap-scroll { overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #61705d #111912; }.keymap-scroll:focus-visible { outline: 2px solid #b4d4b6; outline-offset: 3px; }
+#keymap { min-width: 640px; padding: 6px; border: 1px solid #52604d; border-radius: 8px; background: #111912; box-shadow: inset 0 1px 4px #0008, 0 3px 0 #0d130f; }
+.keymap-row { display: grid; grid-template-columns: repeat(60, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); aspect-ratio: 15 / 1; }
+.keymap-key { grid-column: span var(--units, 4); position: relative; min-width: 0; min-height: 0; margin: 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; border: 1px solid #39463a; border-bottom-width: 3px; border-radius: 5px; background: linear-gradient(#242e25, #1b241d); color: #879480; font: 11px monospace; }
+.keymap-key > span { align-self: flex-start; }.keymap-key[data-shortcut] > span { position: absolute; top: 5px; left: 6px; }
+.keymap-key.keymap-left { background: linear-gradient(#3b513c, #2a3b2c); border-color: #718b69; color: #e0ebd4; }
+.keymap-key.keymap-right { background: linear-gradient(#494b34, #343825); border-color: #8c8b64; color: #eee9cf; }
+.keymap-row:last-child .keymap-key > span { align-self: center; }
+.keymap-degree { position: relative; font: 500 20px 'Segoe UI', sans-serif; line-height: 22px; }
+.keymap-degree::before, .keymap-degree::after { position: absolute; left: 50%; transform: translateX(-50%); font-size: 14px; line-height: 4px; white-space: pre; }
+.keymap-degree::before { content: attr(data-above); bottom: calc(100% + 2px); }.keymap-degree::after { content: attr(data-below); top: calc(100% + 2px); }
+.keymap-key small { position: absolute; right: 5px; bottom: 4px; color: #bdc9af; font-size: 9px; }
+.keymap-shift { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 17px 0 8px; font-size: 11px; }.keymap-shift kbd { padding: 5px 9px; }
+.keymap-panel > small { display: block; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.piano-surface.numbered { min-width: 1248px; }
+.numbered .key-label { position: relative; font-size: 12px; line-height: 14px; margin-bottom: 14px; color: #555b4a; }
+.numbered .black .key-label { color: #bbc7ad; }
+.numbered .chromatic .key-label { font-size: 10px; }
+.numbered .key-label::before, .numbered .key-label::after { position: absolute; left: 50%; transform: translateX(-50%); white-space: pre; font-size: 12px; line-height: 3px; }
+.numbered .key-label::before { content: attr(data-above); bottom: calc(100% + 3px); }
+.numbered .key-label::after { content: attr(data-below); top: calc(100% + 2px); }
+.numbered .mapped .key-shortcut { color: #4f6448; font-size: 10px; font-weight: 600; }
+.numbered .black.mapped .key-shortcut { color: #c8d6b8; }
+.numbered .shared-shortcut .key-shortcut { font-size: 7px; }
+@media (max-width: 620px) { .notation-toolbar { padding: 0 14px 14px; gap: 8px; }.notation-toolbar .notation-mode button { padding: 7px 10px; }.numbered-guide { padding: 0 14px 14px; gap: 8px 18px; } }
+@media (max-width: 620px) { .keymap-panel { left: 14px; width: calc(100% - 28px); padding: 12px 8px; }.keymap-hands { font-size: 10px; }#keymap { padding: 3px; border-radius: 5px; }.keymap-key { margin: 1px; padding: 3px 2px; border-radius: 3px; font-size: 8px; }.keymap-key[data-shortcut] > span { top: 3px; left: 3px; }.keymap-degree { font-size: 14px; line-height: 16px; margin-top: 8px; }.keymap-key small { display: none; } }
 .roll { height: 265px; position: relative; background: linear-gradient(#151d18, #1d271e); border-top: 1px solid #63706030; border-bottom: 2px solid #b9c99a; box-shadow: inset 0 -15px 30px #c1d7a508; }
 canvas { width: 100%; height: 100%; display: block; }
 .roll-empty { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 13px; color: #9aaa90; pointer-events: none; }
