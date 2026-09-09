@@ -1,9 +1,12 @@
-"""Separate a song locally, then follow vocal and bass pitch instead of the full mix."""
+"""Separate a song, then follow vocal and bass pitch instead of the full mix."""
 import json
 import os
 import sys
 
 os.environ.setdefault('PYTORCH_ENABLE_MPS_FALLBACK', '1')
+if os.environ.get('VERCEL'):
+    os.environ.setdefault('TORCH_HOME', '/tmp/echo-piano-models')
+    os.environ.setdefault('NUMBA_CACHE_DIR', '/tmp/echo-piano-numba')
 import numpy as np
 from scipy.ndimage import median_filter
 
@@ -46,10 +49,14 @@ def transcribe(path):
     from demucs.apply import apply_model
     from demucs.separate import load_track
 
-    torch.set_num_threads(min(4, os.cpu_count() or 1))
+    torch.set_num_threads(1 if os.environ.get('VERCEL') else min(4, os.cpu_count() or 1))
     device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
     emit(type='progress', progress=.01, stage='loadingSeparation', label='Loading vocal separation model; the first run downloads weights…')
     model = get_model('htdemucs').eval()
+    if os.environ.get('VERCEL'):
+        # The trained 7.8-second window exceeds the 2 GB function memory limit.
+        for submodel in model.models:
+            submodel.segment = 4
     wav = load_track(Path(path), model.audio_channels, model.samplerate)
     duration = wav.shape[-1] / model.samplerate
     if not .1 <= duration <= 1800:
