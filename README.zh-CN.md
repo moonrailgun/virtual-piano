@@ -33,7 +33,7 @@ npm run build
 npm run preview
 ```
 
-歌曲模式将音频发送到 `127.0.0.1:8001` 的本机 Python 服务，临时文件在完成或取消后删除，音频不发送到外部服务。仅提供 `dist/` 的静态部署可以使用纯乐器模式；歌曲模式需要同时运行本机服务与 `/api` 代理。中文衬线字体可从 Google Fonts 加载，加载失败时使用系统字体。
+本地开发时，歌曲模式通过 Vite 将音频发送到 `127.0.0.1:8001` 的 Python 服务；生产环境则分片上传到同源 Vercel Python 函数，完成或取消后删除临时文件。纯乐器模式在浏览器中转谱。中文衬线字体可从 Google Fonts 加载，加载失败时使用系统字体。
 
 ## 工作方式与边界
 
@@ -41,15 +41,23 @@ npm run preview
 
 在线体验：[Echo Piano](https://virtual-piano-sable.vercel.app)。
 
-仓库：[moonrailgun/virtual-piano](https://github.com/moonrailgun/virtual-piano)。将该仓库导入 Vercel 即可，`vercel.json` 已配置 Vite 构建、模型资产复制和浏览器转谱模式。
+仓库：[moonrailgun/virtual-piano](https://github.com/moonrailgun/virtual-piano)。将该仓库导入 Vercel，`vercel.json` 已配置 Vite 构建和模型资产复制。同一次部署包含 Python 歌曲转谱函数和 Node.js 视频导入函数，访客无需安装 Python。
 
-`api/video.mjs` 使用 Node.js 24，Vercel 函数超时为 300 秒；Vite dev/preview 使用同一接口。`npm install` 会下载固定版本且校验 SHA-256 的独立 yt-dlp 程序（包含 Python 和 YouTube EJS 解析器），并安装 `ffmpeg-static`。支持 macOS / Linux，`npm run setup:video` 可恢复下载器；Vercel 会将两个程序打包进函数。服务器校验完整音频后流式返回 M4A，转谱仍在访客设备上完成。下载经过本地代理，拦截内网和保留地址、固定已检查的 DNS 地址，并检查重定向目标。仅部署 `dist/` 不包含该接口。YouTube、B 站可能拦截数据中心 IP，需要单独验证实际部署的预览环境。
+`api/video.mjs` 使用 Node.js 24，Vercel 函数超时为 300 秒；Vite dev/preview 使用同一接口。`npm install` 会下载固定版本且校验 SHA-256 的独立 yt-dlp 程序（包含 Python 和 YouTube EJS 解析器），并安装 `ffmpeg-static`。支持 macOS / Linux，`npm run setup:video` 可恢复下载器；Vercel 会将两个程序打包进函数。服务器校验完整音频后流式返回 M4A，浏览器再将歌曲交给歌曲服务，或自行处理纯乐器录音。下载经过本地代理，拦截内网和保留地址、固定已检查的 DNS 地址，并检查重定向目标。仅部署 `dist/` 不包含该接口。YouTube、B 站可能拦截数据中心 IP，需要单独验证实际部署的预览环境。
 
-公网版支持拖入音频、纯乐器多音转谱、钢琴重奏、原音对照和 MIDI 导出，音频在访客浏览器里处理。歌曲增强选项在公网版禁用；Python / PyTorch 歌曲服务保留为本机功能，不会随静态网页部署。需要公网歌曲增强时，应另行部署模型服务器，不能直接套用 Vercel 函数。
+### 歌曲转谱函数
+
+`api/transcribe.py` 使用 Python 3.12，根目录 `requirements.txt` 安装 CPU 版 PyTorch。Vercel 项目需启用 Fluid Compute；`vercel.json` 在构建时设置 `VERCEL_SUPPORT_LARGE_FUNCTIONS=1`，启用大型 Python 函数，并将执行时限设为 300 秒。还需在项目的 Production 和 Preview 环境变量中设置 `VERCEL_SUPPORT_LARGE_FUNCTIONS=1`，确保正式发布和 Git 构建使用相同上限。详见 [Vercel 函数限制](https://vercel.com/docs/functions/limitations)。
+
+浏览器将整首歌解码为 44.1 kHz 立体声，以 5 秒为一段、两侧各保留 1 秒上下文，依次上传 PCM16 WAV；每次请求最大约 1.24 MB。函数内部使用 4 秒 Demucs 窗口控制内存，分离人声与低音、追踪音高并流式返回进度，浏览器裁掉重叠区，再按原时间轴连接边界音符。这满足 4.5 MB 请求限制，无需额外存储或另一台服务器。每段处理最多 270 秒，每个函数进程同时运行一个推理任务；取消会关闭当前请求并停止后续分段。
+
+首次转谱下载 Demucs 权重，复用实例的 `/tmp` 缓存。音频分段在处理结束或断开连接后删除。`/api/health` 路由到同一个 Python 函数，仅检查接口可用性，不会预热或验证模型；上线前需在部署预览中检查真实歌曲。纯乐器模式仍在浏览器执行。
+
+运行 `python3 tests/song_service_test.py` 可在不安装模型的情况下检查路由、请求限制和来源隔离。`npm test` 另覆盖分段大小、重叠合并、流中断和取消。
 
 ### 转谱方式
 
-- **歌曲模式**：[Demucs](https://github.com/facebookresearch/demucs) 先分离人声、低音、鼓和其他伴奏，再用 [CREPE](https://github.com/maxrmorrison/torchcrepe) 分别追踪人声和低音的音高。音高轮廓经过短抖动过滤、停顿检测和音符切分，导出独立的旋律 / 低音 MIDI 轨道。30 秒分块，两侧保留上下文。优先使用 Apple MPS / CUDA，否则使用 CPU；整首歌曲可能需要数分钟，CPU 更慢。一次处理一首，支持取消，输入限制为 100 MB / 30 分钟。
+- **歌曲模式**：[Demucs](https://github.com/facebookresearch/demucs) 先分离人声、低音、鼓和其他伴奏，再用 [CREPE](https://github.com/maxrmorrison/torchcrepe) 分别追踪人声和低音的音高。音高轮廓经过短抖动过滤、停顿检测和音符切分，导出独立的旋律 / 低音 MIDI 轨道。5 秒分块，两侧保留上下文。优先使用 Apple MPS / CUDA，否则使用 CPU；CPU 推理较慢，整首歌曲的处理时间可能远长于播放时长。一次处理一首，支持取消，歌曲时长限制为 30 分钟。
 - **纯乐器模式**：Web Audio 解码为 22,050 Hz 单声道；[Spotify Basic Pitch](https://github.com/spotify/basic-pitch-ts) 在 Web Worker 中通过 TensorFlow.js WASM 识别多音、起止时间和力度。分块推理并保留重叠区。
 
 歌曲模式生成主唱旋律与低音的简化钢琴版，**不重建完整和弦、配器或指法**；前奏、间奏可能较稀疏，滑音、合唱和密集装饰音仍可能识别不准。纯乐器模式直接处理流行歌曲混音时容易把泛音和伴奏误识别为主旋律。两种模式都属于自动转谱初稿，输出按秒定位的卷帘谱与 MIDI，不是排版五线谱。原音仍使用导入的文件，钢琴重奏使用本地钢琴采样。
