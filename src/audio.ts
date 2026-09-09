@@ -122,14 +122,16 @@ export class PianoAudio {
   }
 }
 
-export async function decodeAudio(file: File, context: AudioContext) {
+export async function decodeAudio(file: File, context: AudioContext, song = false) {
   const decoded = await context.decodeAudioData(await file.arrayBuffer());
   if (!Number.isFinite(decoded.duration) || decoded.duration < .1) throw new Error('audioTooShort');
-  const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * 22050), 22050);
+  if (song && decoded.duration > 1800) throw new Error('songDuration');
+  const sampleRate = song ? 44100 : 22050;
+  const offline = new OfflineAudioContext(song ? 2 : 1, Math.ceil(decoded.duration * sampleRate), sampleRate);
   const source = offline.createBufferSource();
   source.buffer = decoded;
   source.connect(offline.destination);
   source.start();
-  const mono = await offline.startRendering();
-  return { duration: decoded.duration, samples: mono.getChannelData(0) };
+  const buffer = await offline.startRendering();
+  return { duration: decoded.duration, samples: buffer.getChannelData(0), buffer };
 }

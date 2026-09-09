@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu; sys_platform == 'linux'
+torchaudio==2.6.0+cpu; sys_platform == 'linux'
+torch==2.6.0; sys_platform != 'linux'
+torchaudio==2.6.0; sys_platform != 'linux'
+demucs==4.0.1
+torchcrepe==0.0.24
+numpy==1.26.4
+# Vercel strips .pyi files required by librosa 0.10+ lazy imports.
+librosa==0.9.2

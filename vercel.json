@@ -2,9 +2,15 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm ci",
-  "buildCommand": "VITE_BROWSER_ONLY=1 npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "build": { "env": { "VERCEL_SUPPORT_LARGE_FUNCTIONS": "1" } },
+  "rewrites": [{ "source": "/api/health", "destination": "/api/transcribe" }],
   "functions": {
+    "api/transcribe.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{node_modules/**,public/**,src/**,dist/**,bin/**,tests/**,.venv/**,.git/**}"
+    },
     "api/video.mjs": {
       "maxDuration": 300,
       "includeFiles": "{bin/yt-dlp,node_modules/ffmpeg-static/ffmpeg}"

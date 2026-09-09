@@ -2,6 +2,7 @@ import './style.css';
 import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, t, type MessageKey, type Params } from './i18n';
 import { PianoAudio, decodeAudio } from './audio';
 import { fetchAudioLink, readLinkedAudio } from './remote-audio';
+import { transcribeSong } from './song-transcription';
 import { formatTime, keyboardMapping, numberedNote, numberedRows, noteName, pianoKeys, visibleNotes, type Note } from './music';
 
 const icons = {
@@ -97,17 +98,11 @@ try {
   const savedKey = Number(localStorage.getItem('echo-piano-tonic'));
   if (Number.isInteger(savedKey) && savedKey >= 0 && savedKey < 12) tonic = savedKey;
 } catch { /* Storage may be unavailable. */ }
-let modelCheck = Promise.resolve();
-if (import.meta.env.VITE_BROWSER_ONLY === '1') {
-  el<HTMLSelectElement>('transcription-mode').value = 'instrument';
-  el<HTMLSelectElement>('transcription-mode').options[0].disabled = true;
-  setText(el('model-status'), 'browserOnly');
-} else modelCheck = fetch('/api/health', { signal: AbortSignal.timeout(5000) }).then(response => response.json()).then(data => {
+const modelCheck = fetch('/api/health', { signal: AbortSignal.timeout(30000) }).then(response => response.json()).then(data => {
   songModelReady = data.service === 'echo-piano' && data.songMode;
   if (!songModelReady) throw new Error();
   setText(el('model-status'), 'modelReady');
 }).catch(() => {
-  el<HTMLSelectElement>('transcription-mode').value = 'instrument';
   setText(el('model-status'), 'modelMissing');
 });
 let computerKeys = keyboardMapping(notation, tonic);
@@ -269,20 +264,26 @@ function finish(result: Note[], song: boolean) {
 async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration = 0, fromLink = false) {
   if (!file.size) { message('emptyFile', true); return; }
   const song = el<HTMLSelectElement>('transcription-mode').value === 'song';
-  if (song && !songModelReady) { if (fromLink) cancel(); message('songUnavailable', true); return; }
   cancel();
   pause();
   const currentJob = job;
   busy = true;
   el('processing').hidden = false;
-  setText(el('process-label'), 'decoding');
+  setText(el('process-label'), song ? 'modelConnecting' : 'decoding');
   el<HTMLProgressElement>('progress').value = 0;
   el('percent').textContent = '0%';
   setRawText(el('message'), ''); el('message').classList.remove('error');
   updateControls();
-  let decoding = true;
+  let decoding = false;
   try {
-    const decoded = await decodeAudio(file, audio.context);
+    if (song) {
+      await modelCheck;
+      if (currentJob !== job) return;
+      if (!songModelReady) throw new Error('songUnavailable');
+    }
+    setText(el('process-label'), 'decoding');
+    decoding = true;
+    const decoded = await decodeAudio(file, audio.context, song);
     decoding = false;
     if (currentJob !== job) return;
     if (fromLink && decoded.duration > 20 * 60) throw new Error('videoTooLarge');
@@ -303,28 +304,14 @@ async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration 
     updateControls();
     if (song) {
       request = new AbortController();
-      const response = await fetch('/api/transcribe', { method: 'POST', body: file, signal: request.signal, headers: { 'Content-Type': 'application/octet-stream' } });
-      if (!response.ok || !response.body) throw new Error(response.status === 409 ? 'songBusy' : response.status === 413 ? 'songSize' : 'songServiceFailed');
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-      let pending = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (currentJob !== job) { await reader.cancel(); return; }
-        if (done) throw new Error('songDisconnected');
-        pending += value;
-        const lines = pending.split('\n');
-        pending = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const data = JSON.parse(line);
-          if (data.type === 'complete') { finish(data.notes, true); return; }
-          if (data.type === 'error') throw new Error(isMessageKey(data.code) ? data.code : data.message);
-          if (isMessageKey(data.stage)) setText(el('process-label'), data.stage, { time: data.time ?? '' });
-          else setRawText(el('process-label'), String(data.label ?? ''));
-          el<HTMLProgressElement>('progress').value = data.progress;
-          el('percent').textContent = `${Math.round(data.progress * 100)}%`;
-        }
-      }
+      const result = await transcribeSong(decoded.buffer, request.signal, data => {
+        if (currentJob !== job) return;
+        if (isMessageKey(data.stage)) setText(el('process-label'), data.stage, { time: data.time });
+        el<HTMLProgressElement>('progress').value = data.progress;
+        el('percent').textContent = `${Math.round(data.progress * 100)}%`;
+      });
+      if (currentJob === job) finish(result, true);
+      return;
     }
     worker = new Worker(new URL('./transcribe.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
@@ -347,7 +334,7 @@ function fail(reason: string, decoding = false) {
   console.error('Audio transcription:', reason);
   cancel();
   setText(el('note-count'), notes.length ? 'noteCount' : 'noScore', { count: notes.length });
-  message(decoding ? (reason === 'audioTooShort' ? 'audioTooShort' : 'decodingFailed') : 'transcriptionFailed', true, { reason: errorReason(reason) });
+  message(reason === 'songDuration' ? 'songDuration' : decoding ? (reason === 'audioTooShort' ? 'audioTooShort' : 'decodingFailed') : 'transcriptionFailed', true, { reason: errorReason(reason) });
   if (duration && !notes.length) changeMode('original');
 }
 function changeMode(next: typeof mode) {
