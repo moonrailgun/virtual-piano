@@ -12,13 +12,13 @@ export async function bilibiliAudio(url, signal) {
     if (result.code !== 0 || !result.data) throw new Error('videoUnavailable');
     return result.data;
   }
-  const video = await api('/x/web-interface/view', { bvid });
+  const video = await api('/x/web-interface/wbi/view', { bvid });
   const part = video.pages?.[page - 1];
   if (!part?.cid || !Number.isFinite(part.duration) || part.duration <= 0) throw new Error('videoUnavailable');
   if (part.duration > 20 * 60) throw new Error('videoTooLarge');
   const playback = await api('/x/player/playurl', { bvid, cid: String(part.cid), fnval: '16', fnver: '0', fourk: '1' });
   const audio = playback.dash?.audio?.filter(track => track.codecs?.startsWith('mp4a')).sort((a, b) => b.bandwidth - a.bandwidth)[0];
-  const sources = audio ? [audio.baseUrl ?? audio.base_url, ...(audio.backupUrl ?? audio.backup_url ?? [])] : [];
+  let sources = audio ? [audio.baseUrl ?? audio.base_url, ...(audio.backupUrl ?? audio.backup_url ?? [])] : [];
   // Prefer a standard CDN URL over peer endpoints on nonstandard ports.
   let source = sources.find(source => source && !new URL(source).port);
   let length = Number(playback.dash?.duration);
@@ -29,10 +29,15 @@ export async function bilibiliAudio(url, signal) {
     if (Number.isFinite(length) && length < part.duration - 2) throw new Error('videoIncomplete');
     if (segments?.length !== 1 || playback.format !== 'mp4') throw new Error('videoUnavailable');
     source = segments[0].url;
+    sources = [source, ...(segments[0].backup_url ?? [])];
   }
   if (!Number.isFinite(length) || length < part.duration - 2) throw new Error('videoIncomplete');
-  const media = new URL(source);
-  if (!['https:', 'http:'].includes(media.protocol) || media.username || media.password || media.port || !['bilivideo.com', 'bilivideo.cn'].some(domain => media.hostname.endsWith(`.${domain}`))) throw new Error('videoUnavailable');
-  media.protocol = 'https:';
-  return { id: bvid, title: `${video.title || bvid}${video.pages.length > 1 ? ` · ${part.part || page}` : ''}`, duration: part.duration, url: media.href, protocol: 'https', ext: 'mp4', http_headers: headers };
+  const formats = sources.flatMap(source => {
+    const media = URL.parse(source);
+    if (!media || !['https:', 'http:'].includes(media.protocol) || media.username || media.password || media.port || !(media.hostname === 'upos-hz-mirrorakam.akamaized.net' || ['bilivideo.com', 'bilivideo.cn'].some(domain => media.hostname.endsWith(`.${domain}`)))) return [];
+    media.protocol = 'https:';
+    return [{ url: media.href, protocol: 'https', ext: 'mp4', ...(audio ? { vcodec: 'none', acodec: audio.codecs } : {}) }];
+  }).map((format, index) => ({ ...format, format_id: String(index), source_preference: -index }));
+  if (!formats.length) throw new Error('videoUnavailable');
+  return { id: bvid, title: `${video.title || bvid}${video.pages.length > 1 ? ` · ${part.part || page}` : ''}`, duration: part.duration, url: formats[0].url, protocol: 'https', ext: 'mp4', formats, http_headers: headers };
 }

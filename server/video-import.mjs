@@ -42,7 +42,8 @@ export async function importVideo(url, directory, signal) {
   const env = { ...process.env, no_proxy: '', NO_PROXY: '', http_proxy: proxy.url, HTTP_PROXY: proxy.url, https_proxy: proxy.url, HTTPS_PROXY: proxy.url, all_proxy: proxy.url, ALL_PROXY: proxy.url };
   const args = ['--ignore-config', '--no-plugin-dirs', '--no-playlist', '--playlist-items', '1', '--no-cache-dir', '--no-warnings', '--no-progress', '--no-remote-components', '--js-runtimes', `node:${process.execPath}`, '--proxy', proxy.url, '--socket-timeout', '20', '--retries', '1', '--fragment-retries', '1', '--abort-on-unavailable-fragments', '--downloader', 'native', '--hls-prefer-native', '--fixup', 'never', '--max-filesize', String(maxBytes), '--format', 'bestaudio/best[height<=480]/best'];
   try {
-    const info = ['bilibili.com', 'www.bilibili.com', 'm.bilibili.com'].includes(url.hostname)
+    const bilibili = ['bilibili.com', 'www.bilibili.com', 'm.bilibili.com'].includes(url.hostname);
+    const info = bilibili
       ? await bilibiliAudio(url, downloadSignal)
       : JSON.parse(await run(executable, [...args, '--dump-single-json', '--skip-download', '--', url.href], downloadSignal, env));
     const directAudio = info.extractor_key === 'Generic' && info.vcodec === 'none' && ['http', 'https'].includes(info.protocol);
@@ -50,7 +51,8 @@ export async function importVideo(url, directory, signal) {
     if (info.is_live || info._type === 'playlist' || !['http', 'https', 'm3u8_native', 'http_dash_segments'].includes(info.protocol)) throw new Error('videoUnavailable');
     const metadata = path.join(directory, 'info.json');
     await writeFile(metadata, JSON.stringify(info));
-    await run(executable, [...args, '--load-info-json', metadata, '--output', path.join(directory, 'source.%(ext)s')], downloadSignal, env);
+    // Let yt-dlp skip blocked Bilibili CDNs; keep its probe files in writable temporary storage.
+    await run(executable, [...args, ...(bilibili ? ['--check-formats', '--paths', `temp:${directory}`] : []), '--load-info-json', metadata, '--output', path.join(directory, 'source.%(ext)s')], downloadSignal, env);
     const files = (await readdir(directory)).filter(file => file.startsWith('source.') && !file.endsWith('.part') && !file.endsWith('.ytdl'));
     if (files.length !== 1) throw new Error('videoIncomplete');
     const source = path.join(directory, files[0]);
