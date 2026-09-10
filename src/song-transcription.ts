@@ -2,6 +2,7 @@ import type { Note } from './music';
 
 type SongAudio = Pick<AudioBuffer, 'sampleRate' | 'length' | 'numberOfChannels' | 'getChannelData'>;
 type Progress = { progress: number; stage?: string; time: string };
+export type SongSource = 'vocals' | 'accompaniment';
 
 function encodeWav(audio: SongAudio, start: number, end: number) {
   const channels = Math.min(2, audio.numberOfChannels);
@@ -26,16 +27,19 @@ function encodeWav(audio: SongAudio, start: number, end: number) {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-export async function transcribeSong(audio: SongAudio, signal: AbortSignal, onProgress: (data: Progress) => void): Promise<Note[]> {
+export async function transcribeSong(audio: SongAudio, signal: AbortSignal, onProgress: (data: Progress) => void, source: SongSource = 'vocals') {
   const duration = audio.length / audio.sampleRate;
   if (!Number.isFinite(duration) || duration < .1 || duration > 1800) throw new Error('songDuration');
   const result: Note[] = [];
+  const sampleFrame = (time: number) => Math.round(Math.round(time * audio.sampleRate) * 22050 / audio.sampleRate);
+  const samples = source === 'accompaniment' ? new Float32Array(sampleFrame(duration)) : undefined;
   const last = new Map<string, Note>();
   // Short chunks leave CPU inference time within the function deadline, including context.
   for (let offset = 0; offset < duration; offset += 5) {
     signal.throwIfAborted();
     const left = Math.max(0, offset - 1), end = Math.min(duration, offset + 5);
-    const response = await fetch('/api/transcribe', { method: 'POST', body: encodeWav(audio, left, Math.min(duration, end + 1)), signal });
+    const right = Math.min(duration, end + 1);
+    const response = await fetch('/api/transcribe', { method: 'POST', headers: { 'X-Song-Source': source }, body: encodeWav(audio, left, right), signal });
     if (!response.ok || !response.body) throw new Error(response.status === 409 ? 'songBusy' : response.status === 413 ? 'songSize' : 'songServiceFailed');
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let pending = '', completed = false;
@@ -52,7 +56,14 @@ export async function transcribeSong(audio: SongAudio, signal: AbortSignal, onPr
           const data = JSON.parse(line);
           if (data.type === 'error') throw new Error(data.code || data.message || 'songServiceFailed');
           if (data.type === 'complete') {
-            for (const note of data.notes as Note[]) {
+            if (samples) {
+              if (data.sampleRate !== 22050 || typeof data.audio !== 'string') throw new Error('songServiceFailed');
+              const bytes = Uint8Array.from(atob(data.audio), char => char.charCodeAt(0));
+              if (bytes.length !== (sampleFrame(right) - sampleFrame(left)) * 2) throw new Error('songServiceFailed');
+              const pcm = new DataView(bytes.buffer);
+              const first = sampleFrame(offset), stop = sampleFrame(end), context = sampleFrame(left);
+              for (let frame = first; frame < stop; frame++) samples[frame] = pcm.getInt16((frame - context) * 2, true) / 32768;
+            } else for (const note of data.notes as Note[]) {
               const start = Math.max(offset, left + note.start), stop = Math.min(end, left + note.end);
               if (stop <= start) continue;
               const key = `${note.part}:${note.pitch}`, previous = last.get(key);
@@ -73,5 +84,5 @@ export async function transcribeSong(audio: SongAudio, signal: AbortSignal, onPr
       await reader.cancel().catch(() => {});
     }
   }
-  return result.sort((a, b) => a.start - b.start);
+  return { notes: result.sort((a, b) => a.start - b.start), samples };
 }

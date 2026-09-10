@@ -13,6 +13,7 @@ test('song requests stay below the upload limit and join only boundary copies wi
   try {
     globalThis.fetch = async (_url, options) => {
       assert.equal(options?.signal, controller.signal);
+      assert.equal(new Headers(options?.headers).get('X-Song-Source'), 'vocals');
       const wav = new DataView(await (options!.body as Blob).arrayBuffer());
       assert.ok(wav.byteLength < 4_500_000);
       assert.equal(wav.getUint16(22, true), 2);
@@ -24,7 +25,7 @@ test('song requests stay below the upload limit and join only boundary copies wi
       const notes = lengths.length > 2 ? [] : ['melody', 'bass'].map(part => ({ pitch: 60, start, end, velocity: .8, part }));
       return new Response(`${JSON.stringify({ type: 'progress', progress: .5, stage: 'separating' })}\n\n${JSON.stringify({ type: 'complete', notes })}\n`);
     };
-    const notes = await transcribeSong(audio, controller.signal, data => progress.push(data.progress));
+    const { notes } = await transcribeSong(audio, controller.signal, data => progress.push(data.progress));
     assert.deepEqual(lengths, [6, 7, 2]);
     assert.deepEqual(notes.map(({ start, end, part }) => ({ start, end, part })), [
       { start: 4, end: 6, part: 'melody' }, { start: 4, end: 6, part: 'bass' },
@@ -34,6 +35,37 @@ test('song requests stay below the upload limit and join only boundary copies wi
     await assert.rejects(transcribeSong(audio, controller.signal, () => {}), /songDisconnected/);
     globalThis.fetch = async () => { controller.abort(); return new Response('{"type":"complete","notes":[]}\n'); };
     await assert.rejects(transcribeSong(audio, controller.signal, () => {}), { name: 'AbortError' });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('accompaniment requests stitch PCM cores without duplicated context or a truncated tail', async () => {
+  const input = new Float32Array(44100 * 11 + 1);
+  const audio = { sampleRate: 44100, length: input.length, numberOfChannels: 2, getChannelData: () => input };
+  const original = globalThis.fetch;
+  const signal = new AbortController().signal;
+  let calls = 0;
+  try {
+    globalThis.fetch = async (_url, options) => {
+      assert.equal(new Headers(options?.headers).get('X-Song-Source'), 'accompaniment');
+      const wav = new DataView(await (options!.body as Blob).arrayBuffer());
+      const frames = Math.round((wav.byteLength - 44) / 4 / 2);
+      const left = Math.max(0, calls++ * 5 - 1) * 22050;
+      const pcm = Buffer.alloc(frames * 2);
+      for (let i = 0; i < frames; i++) pcm.writeInt16LE((left + i) % 30000 - 15000, i * 2);
+      return new Response(`${JSON.stringify({ type: 'complete', audio: pcm.toString('base64'), sampleRate: 22050 })}\n`);
+    };
+    const result = await transcribeSong(audio, signal, () => {}, 'accompaniment');
+    assert.equal(calls, 3);
+    assert.deepEqual(result.notes, []);
+    assert.ok(result.samples instanceof Float32Array);
+    assert.equal(result.samples.length, Math.round(input.length / 2));
+    for (let i = 0; i < result.samples.length; i++) assert.equal(result.samples[i], (i % 30000 - 15000) / 32768);
+    for (const data of [{ notes: [] }, { audio: '', sampleRate: 22050 }, { audio: 'AAAA', sampleRate: 44100 }]) {
+      globalThis.fetch = async () => new Response(`${JSON.stringify({ type: 'complete', ...data })}\n`);
+      await assert.rejects(transcribeSong(audio, signal, () => {}, 'accompaniment'), /songServiceFailed/);
+    }
   } finally {
     globalThis.fetch = original;
   }

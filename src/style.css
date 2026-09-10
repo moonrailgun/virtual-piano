@@ -155,3 +155,5 @@ kbd { font-family: inherit; font-size: 8px; border: 1px solid #a5b28e26; border-
 .transcription-options { display: flex; align-items: center; gap: 12px; margin: 14px 0; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
 .transcription-options select { background: #202c25; color: #e7e7d9; border: 1px solid #455446; border-radius: 6px; padding: 8px 28px 8px 10px; font: inherit; }
 .transcription-options span { font-size: 11px; }
+#song-options { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#model-status { flex-basis: 100%; }

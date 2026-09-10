@@ -2,7 +2,7 @@ import './style.css';
 import { applyTranslations, errorReason, isMessageKey, locale, setLabel, setLocale, setRawText, setText, t, type MessageKey, type Params } from './i18n';
 import { PianoAudio, decodeAudio } from './audio';
 import { fetchAudioLink, readLinkedAudio } from './remote-audio';
-import { transcribeSong } from './song-transcription';
+import { transcribeSong, type SongSource } from './song-transcription';
 import { formatTime, keyboardMapping, numberedNote, numberedRows, noteName, pianoKeys, visibleNotes, type Note } from './music';
 
 const icons = {
@@ -32,7 +32,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" hidden>
       <form id="video-form" class="video-form"><label for="video-url" data-i18n="videoLabel"></label><div class="video-controls"><input id="video-url" type="url" required placeholder="https://www.youtube.com/watch?v=…" aria-describedby="video-hint"><button id="video-import" class="outline-button" type="submit" data-i18n="videoImport"></button></div><small id="video-hint" data-i18n="videoHint"></small></form>
     </section>
-    <div class="transcription-options"><label for="transcription-mode" data-i18n="audioType"></label><select id="transcription-mode"><option value="song" data-i18n="songMode"></option><option value="instrument" data-i18n="instrumentMode"></option></select><span id="model-status" data-i18n="modelConnecting"></span></div>
+    <div class="transcription-options"><label for="transcription-mode" data-i18n="audioType"></label><select id="transcription-mode"><option value="song" data-i18n="songMode"></option><option value="instrument" data-i18n="instrumentMode"></option></select><div id="song-options"><label for="song-source" data-i18n="songSource"></label><select id="song-source" aria-describedby="song-source-hint"><option value="vocals" data-i18n="vocalSource"></option><option value="accompaniment" data-i18n="accompanimentSource"></option></select><small id="song-source-hint" data-i18n="songSourceHint"></small></div><span id="model-status" data-i18n="modelConnecting"></span></div>
     <section id="processing" class="processing" hidden>
       <span class="spinner"></span><div><strong id="process-label" data-i18n="readingAudio"></strong><progress id="progress" max="1" value="0" data-i18n-label="progress"></progress></div><span id="percent">0%</span><button id="cancel" class="text-button" data-i18n="cancel"></button>
     </section>
@@ -81,6 +81,7 @@ let duration = 0;
 let position = 0;
 let songName = '';
 let fileUrl = '';
+let importedAudio: Parameters<typeof importAudio> | undefined;
 let mode: 'piano' | 'original' = 'piano';
 let worker: Worker | undefined;
 let request: AbortController | undefined;
@@ -208,6 +209,9 @@ async function pressKey(pitch: number) {
 }
 function releaseKey(pitch: number) { held.get(pitch)?.stop?.(); held.delete(pitch); dirty = true; }
 function updateControls() {
+  el<HTMLSelectElement>('transcription-mode').disabled = busy;
+  el<HTMLSelectElement>('song-source').disabled = busy;
+  el('song-options').hidden = el<HTMLSelectElement>('transcription-mode').value !== 'song';
   el<HTMLButtonElement>('demo').disabled = busy;
   el<HTMLButtonElement>('video-import').disabled = busy;
   el<HTMLButtonElement>('play').disabled = busy || !duration || (mode === 'piano' && !notes.length);
@@ -250,20 +254,22 @@ function cancel() {
   el('processing').hidden = true;
   updateControls();
 }
-function finish(result: Note[], song: boolean) {
+function finish(result: Note[], song: boolean, completion: MessageKey = song ? 'songComplete' : 'complete') {
   notes = result;
   cancel();
   el<HTMLProgressElement>('progress').value = 1;
   el('percent').textContent = '100%';
   const melody = notes.filter(note => note.part === 'melody').length;
   setText(el('note-count'), song ? 'songSummary' : 'noteSummary', { count: notes.length, melody, bass: notes.length - melody, duration: formatTime(duration) });
-  message(notes.length ? (song ? 'songComplete' : 'complete') : 'noNotes');
+  message(notes.length ? completion : 'noNotes');
   changeMode(notes.length ? 'piano' : 'original');
   updateControls();
 }
 async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration = 0, fromLink = false) {
   if (!file.size) { message('emptyFile', true); return; }
   const song = el<HTMLSelectElement>('transcription-mode').value === 'song';
+  const source = el<HTMLSelectElement>('song-source').value as SongSource;
+  const accompaniment = song && source === 'accompaniment';
   cancel();
   pause();
   const currentJob = job;
@@ -288,6 +294,7 @@ async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration 
     if (currentJob !== job) return;
     if (fromLink && decoded.duration > 20 * 60) throw new Error('videoTooLarge');
     if (decoded.duration < expectedDuration - 2) throw new Error('videoIncomplete');
+    importedAudio = [file, demoTitle, expectedDuration, fromLink];
     if (fileUrl) URL.revokeObjectURL(fileUrl);
     fileUrl = URL.createObjectURL(file);
     audio.original.src = fileUrl;
@@ -302,30 +309,37 @@ async function importAudio(file: File, demoTitle?: MessageKey, expectedDuration 
     el<HTMLInputElement>('seek').max = String(duration);
     setText(el('process-label'), 'loadingModel');
     updateControls();
+    let samples = decoded.samples;
     if (song) {
       request = new AbortController();
       const result = await transcribeSong(decoded.buffer, request.signal, data => {
         if (currentJob !== job) return;
         if (isMessageKey(data.stage)) setText(el('process-label'), data.stage, { time: data.time });
-        el<HTMLProgressElement>('progress').value = data.progress;
-        el('percent').textContent = `${Math.round(data.progress * 100)}%`;
-      });
-      if (currentJob === job) finish(result, true);
-      return;
+        const progress = data.progress * (accompaniment ? .8 : 1);
+        el<HTMLProgressElement>('progress').value = progress;
+        el('percent').textContent = `${Math.round(progress * 100)}%`;
+      }, source);
+      if (currentJob !== job) return;
+      if (!result.samples) { finish(result.notes, true); return; }
+      samples = result.samples;
+      setText(el('process-label'), 'loadingModel');
+      el<HTMLProgressElement>('progress').value = .8;
+      el('percent').textContent = '80%';
     }
     worker = new Worker(new URL('./transcribe.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (currentJob !== job) return;
       if (data.type === 'progress') {
         setText(el('process-label'), 'inference');
-        el<HTMLProgressElement>('progress').value = data.progress;
-        el('percent').textContent = `${Math.round(data.progress * 100)}%`;
+        const progress = accompaniment ? .8 + data.progress * .2 : data.progress;
+        el<HTMLProgressElement>('progress').value = progress;
+        el('percent').textContent = `${Math.round(progress * 100)}%`;
       } else if (data.type === 'complete') {
-        finish(data.notes, false);
+        finish(data.notes, false, accompaniment ? 'accompanimentComplete' : 'complete');
       } else if (data.type === 'error') fail(data.message);
     };
     worker.onerror = event => { if (currentJob === job) fail(event.message); };
-    worker.postMessage({ samples: decoded.samples, base: new URL(import.meta.env.BASE_URL, location.href).href }, [decoded.samples.buffer]);
+    worker.postMessage({ samples, base: new URL(import.meta.env.BASE_URL, location.href).href }, [samples.buffer]);
   } catch (error) {
     if (currentJob === job) fail(error instanceof Error ? error.message : String(error), decoding);
   }
@@ -350,6 +364,15 @@ function changeMode(next: typeof mode) {
 }
 
 el('choose').onclick = () => el<HTMLInputElement>('file').click();
+el<HTMLSelectElement>('song-source').onchange = el<HTMLSelectElement>('transcription-mode').onchange = () => {
+  if (busy) return;
+  updateControls();
+  if (importedAudio) {
+    notes = [];
+    setText(el('note-count'), 'noScore');
+    void importAudio(...importedAudio);
+  }
+};
 el<HTMLInputElement>('file').onchange = event => { const input = event.target as HTMLInputElement; if (input.files?.[0]) void importAudio(input.files[0]); input.value = ''; };
 el('demo').onclick = async () => {
   const option = el<HTMLSelectElement>('demo-song').selectedOptions[0];
@@ -371,8 +394,8 @@ async function importRemote(url: string, demoTitle?: MessageKey) {
   el('percent').textContent = '0%';
   setRawText(el('message'), '');
   el('message').classList.remove('error');
-  updateControls();
   if (demoTitle) el<HTMLSelectElement>('transcription-mode').value = 'instrument';
+  updateControls();
   try {
     const response = demoTitle ? await fetch(url, { signal: request.signal }) : await fetchAudioLink(url, request.signal);
     if (!response.ok) {
