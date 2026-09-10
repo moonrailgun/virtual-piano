@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(204)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Song-Source')
         self.end_headers()
 
     def do_GET(self):
@@ -72,6 +72,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self.origin_allowed():
             self.send_error(403)
             return
+        source = self.headers.get('X-Song-Source', 'vocals')
+        if source not in ('vocals', 'accompaniment'):
+            self.send_error(400, 'Expected vocals or accompaniment')
+            return
         try:
             size = int(self.headers.get('Content-Length', 0))
         except ValueError:
@@ -83,6 +87,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(409, 'Another song is being processed')
             return
         process = None
+        final_event = None
         try:
             with tempfile.TemporaryDirectory(prefix='echo-piano-') as directory:
                 path = Path(directory) / 'audio.wav'
@@ -110,12 +115,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('X-Accel-Buffering', 'no')
                 self.end_headers()
                 with (Path(directory) / 'error.log').open('w+') as errors:
-                    process = subprocess.Popen([sys.executable, '-u', str(Path(__file__).with_name('transcribe.py')), str(path)], stdout=subprocess.PIPE, stderr=errors, start_new_session=True, bufsize=0)
-                    completed = False
+                    process = subprocess.Popen([sys.executable, '-u', str(Path(__file__).with_name('transcribe.py')), str(path), source], stdout=subprocess.PIPE, stderr=errors, start_new_session=True, bufsize=0)
                     deadline = time.monotonic() + 270
                     while not stopping.is_set():
                         if time.monotonic() >= deadline:
-                            self.wfile.write(b'{"type":"error","code":"songTimeout"}\n')
+                            final_event = b'{"type":"error","code":"songTimeout"}\n'
                             break
                         ready, _, _ = select.select([process.stdout, self.connection], [], [], .5)
                         if self.connection in ready and not self.connection.recv(1, socket.MSG_PEEK):
@@ -125,17 +129,19 @@ class Handler(BaseHTTPRequestHandler):
                             if not line:
                                 break
                             event = json.loads(line)
-                            completed |= event['type'] in ('complete', 'error')
+                            if event['type'] in ('complete', 'error'):
+                                final_event = line
+                                break
                             self.wfile.write(line)
                             self.wfile.flush()
                         if not ready:
                             # A heartbeat also makes aborts observable during a long model call.
                             self.wfile.write(b'\n')
                             self.wfile.flush()
-                    if not completed and process.poll() is not None:
+                    if not final_event and process.poll() is not None:
                         errors.seek(0)
                         print(f'Song process exited: status={process.returncode}, peak_rss_kb={resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss}\n{errors.read()[-4000:]}', file=sys.stderr, flush=True)
-                        self.wfile.write(json.dumps(dict(type='error', code='songProcessExited', message='Song processing stopped. Please try again.'), ensure_ascii=False).encode() + b'\n')
+                        final_event = json.dumps(dict(type='error', code='songProcessExited', message='Song processing stopped. Please try again.'), ensure_ascii=False).encode() + b'\n'
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
         finally:
@@ -147,6 +153,13 @@ class Handler(BaseHTTPRequestHandler):
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait()
             job_lock.release()
+        # The client starts the next chunk as soon as it receives completion.
+        if final_event:
+            try:
+                self.wfile.write(final_event)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                pass
 
 
 if __name__ == '__main__':

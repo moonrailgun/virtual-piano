@@ -1,4 +1,5 @@
-"""Separate a song, then follow vocal and bass pitch instead of the full mix."""
+"""Separate a song into vocal/bass notes or pitched accompaniment audio."""
+import base64
 import json
 import os
 import sys
@@ -40,14 +41,24 @@ def emit(**event):
     print(json.dumps(event, ensure_ascii=False), flush=True)
 
 
-def transcribe(path):
+def accompaniment_samples(sources, names, sample_rate):
+    import librosa
+    # Keep chord instruments and bass; percussion has no stable piano pitch.
+    mixed = (sources[names.index('bass')] + sources[names.index('other')]).mean(0)
+    return librosa.resample(mixed, orig_sr=sample_rate, target_sr=22050)
+
+
+def transcribe(path, source='vocals'):
+    if source not in ('vocals', 'accompaniment'):
+        raise ValueError('Expected vocals or accompaniment')
     import torch
-    import torchcrepe
     import librosa
     from pathlib import Path
     from demucs.pretrained import get_model
     from demucs.apply import apply_model
     from demucs.separate import load_track
+    if source == 'vocals':
+        import torchcrepe
 
     torch.set_num_threads(1 if os.environ.get('VERCEL') else min(4, os.cpu_count() or 1))
     device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -63,6 +74,7 @@ def transcribe(path):
         emit(type='error', code='songDuration', message='Song mode supports audio from 0.1 seconds to 30 minutes.')
         return
     notes = []
+    accompaniment = np.zeros((wav.shape[-1] * 22050 + model.samplerate // 2) // model.samplerate, dtype=np.float32) if source == 'accompaniment' else None
     # Context on both sides protects phrase boundaries; only retain each core.
     for offset in range(0, int(np.ceil(duration)), 30):
         left, right = max(0, offset - 1), min(duration, offset + 31)
@@ -72,6 +84,12 @@ def transcribe(path):
             continue
         emit(type='progress', progress=.05 + .9 * offset / duration, stage='separating', time=f'{offset // 60}:{offset % 60:02d}', label='Separating vocals, bass, and drums…')
         sources = apply_model(model, ((chunk - mean) / std)[None], device=device, shifts=0, progress=False)[0] * std
+        if accompaniment is not None:
+            samples = accompaniment_samples(sources.numpy(), model.sources, model.samplerate)
+            first, end = offset * 22050, min(len(accompaniment), (offset + 30) * 22050)
+            context = round((offset - left) * 22050)
+            accompaniment[first:end] = samples[context:context + end - first]
+            continue
         for index, (source, part, low, high) in enumerate([('vocals', 'melody', 65, 1100), ('bass', 'bass', 32.7, 350)]):
             emit(type='progress', progress=min(.98, .05 + .9 * (offset + 10 + 10 * index) / duration), stage='trackingMelody' if part == 'melody' else 'trackingBass', label='Tracking main melody…' if part == 'melody' else 'Extracting bass accompaniment…')
             samples = librosa.resample(sources[model.sources.index(source)].mean(0).numpy(), orig_sr=model.samplerate, target_sr=16000)
@@ -83,6 +101,10 @@ def transcribe(path):
                 start, end = left + note['start'], min(duration, left + note['end'])
                 if end > offset and start < offset + 30:
                     notes.append({**note, 'start': max(offset, start), 'end': min(offset + 30, end)})
+    if accompaniment is not None:
+        pcm = np.rint(np.clip(accompaniment, -1, 32767 / 32768) * 32768).astype('<i2')
+        emit(type='complete', audio=base64.b64encode(pcm.tobytes()).decode('ascii'), sampleRate=22050, duration=duration)
+        return
     # Merge only contiguous copies of the same note at processing boundaries.
     result = []
     last = {}
@@ -99,7 +121,7 @@ def transcribe(path):
 
 if __name__ == '__main__':
     try:
-        transcribe(sys.argv[1])
+        transcribe(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'vocals')
     except Exception as error:
         import traceback
         traceback.print_exc(file=sys.stderr)

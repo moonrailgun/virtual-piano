@@ -3,7 +3,20 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'server'))
 import numpy as np
-from transcribe import contour_notes
+from transcribe import accompaniment_samples, contour_notes
+
+# Keep bass and chord tones, even with reordered stems; discard vocals and drums.
+sources = np.zeros((4, 2, 44100))
+names = ['other', 'vocals', 'drums', 'bass']
+time = np.arange(44100) / 44100
+for source, frequencies in zip(sources, ([440, 550, 660], [1000], [1500], [110])):
+    source[:] = sum(.1 * np.sin(2 * np.pi * frequency * time) for frequency in frequencies)
+samples = accompaniment_samples(sources, names, 44100)
+assert samples.shape == (22050,)
+spectrum = abs(np.fft.rfft(samples))
+assert min(spectrum[[110, 440, 550, 660]]) > 1000
+assert max(spectrum[[1000, 1500]]) < 1
+assert np.all(accompaniment_samples(np.zeros_like(sources), names, 44100) == 0)
 
 # A stable note, a brief confidence dropout, a real rest, a new note and silence.
 f0 = np.r_[np.full(30, 440.), np.full(20, 493.88), np.full(20, 440.)]
