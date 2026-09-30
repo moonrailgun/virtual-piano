@@ -35,6 +35,8 @@ npm run preview
 
 本地开发时，歌曲模式通过 Vite 将音频发送到 `127.0.0.1:8001` 的 Python 服务；生产环境则分片上传到同源 Vercel Python 函数，完成或取消后删除临时文件。纯乐器模式在浏览器中转谱。中文衬线字体可从 Google Fonts 加载，加载失败时使用系统字体。
 
+服务器端链接解析、下载与音频提取**默认关闭**，只有 `ENABLE_VIDEO_IMPORT=true` 才会启用；未设置或其他值均保持关闭。本地 dev/preview 可在 `.env.local` 中添加该变量并重启，或使用 `ENABLE_VIDEO_IMPORT=true npm run dev` 启动。Vercel 需在对应部署环境中设置该变量后重新部署。关闭时 `/api/video` 返回 HTTP 403（`videoDisabled`），界面会提示改用本地音频、可直接访问的音频链接，或联系管理员开启。本地文件和浏览器可直接读取的音频链接仍可正常使用。
+
 ## 工作方式与边界
 
 ### Vercel 公网部署

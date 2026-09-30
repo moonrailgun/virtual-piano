@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { importVideo } from '../server/video-import.mjs';
 
-const errors = { videoInvalid: 400, videoIncomplete: 422, videoTooLarge: 413, videoUnavailable: 502 };
+const errors = { videoDisabled: 403, videoInvalid: 400, videoIncomplete: 422, videoTooLarge: 413, videoUnavailable: 502 };
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }).end(); return; }

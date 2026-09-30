@@ -26,6 +26,7 @@ async function run(command, args, signal, env = process.env) {
 }
 
 export async function importVideo(url, directory, signal) {
+  if (process.env.ENABLE_VIDEO_IMPORT !== 'true') throw new Error('videoDisabled');
   await publicAddress(url);
   const proxy = await videoProxy(signal);
   const controller = new AbortController();

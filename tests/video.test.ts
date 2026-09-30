@@ -5,7 +5,42 @@ import net from 'node:net';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { publicAddress, videoProxy } from '../server/video-proxy.mjs';
-import { checkDuration } from '../server/video-import.mjs';
+import { checkDuration, importVideo } from '../server/video-import.mjs';
+import handler from '../api/video.mjs';
+
+test('video imports require explicit server opt-in before contacting third-party sites', async t => {
+  const previous = process.env.ENABLE_VIDEO_IMPORT;
+  t.after(() => {
+    if (previous === undefined) delete process.env.ENABLE_VIDEO_IMPORT;
+    else process.env.ENABLE_VIDEO_IMPORT = previous;
+  });
+  const lookup = t.mock.method(dns, 'lookup', async () => [{ address: '127.0.0.1', family: 4 }]);
+  const server = http.createServer(handler);
+  t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const source = new URL('https://example.com/video');
+  const endpoint = `http://127.0.0.1:${address.port}/api/video?${new URLSearchParams({ url: source.href })}`;
+  const signal = new AbortController().signal;
+  for (const value of [undefined, '', 'false', '0', '1', 'TRUE']) {
+    if (value === undefined) delete process.env.ENABLE_VIDEO_IMPORT;
+    else process.env.ENABLE_VIDEO_IMPORT = value;
+    await assert.rejects(importVideo(source, '', signal), { message: 'videoDisabled' });
+    const response = await fetch(endpoint);
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { error: 'videoDisabled' });
+  }
+  assert.equal(lookup.mock.callCount(), 0, 'disabled imports must not resolve third-party hosts');
+
+  process.env.ENABLE_VIDEO_IMPORT = 'true';
+  const response = await fetch(endpoint);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'videoInvalid' });
+  assert.equal(lookup.mock.callCount(), 1, 'enabled imports still validate destinations');
+});
 
 test('video imports reject private destinations and incomplete or unbounded audio', async t => {
   t.mock.method(dns, 'lookup', async () => [{ address: '127.0.0.1', family: 4 }]);
